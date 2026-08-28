@@ -1,0 +1,28 @@
+{
+  "name": "oblintz",
+  "version": "1.0.0",
+  "private": true,
+  "description": "OBLINTZ Perfume E-Commerce Platform",
+  "scripts": {
+    "dev": "pnpm --parallel -r run dev",
+    "dev:api": "pnpm --filter @oblintz/api run dev",
+    "dev:web": "pnpm --filter @oblintz/web run dev",
+    "dev:admin": "pnpm --filter @oblintz/admin run dev",
+    "build": "pnpm --parallel -r run build",
+    "build:api": "pnpm --filter @oblintz/api run build",
+    "build:web": "pnpm --filter @oblintz/web run build",
+    "build:admin": "pnpm --filter @oblintz/admin run build",
+    "lint": "pnpm --parallel -r run lint",
+    "typecheck": "pnpm --parallel -r run typecheck",
+    "test": "pnpm --parallel -r run test",
+    "db:migrate": "pnpm --filter @oblintz/api run db:migrate",
+    "db:seed": "pnpm --filter @oblintz/api run db:seed",
+    "db:studio": "pnpm --filter @oblintz/api run db:studio",
+    "clean": "pnpm --parallel -r run clean"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=8.0.0"
+  },
+  "packageManager": "pnpm@8.15.0"
+}
