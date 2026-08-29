@@ -1,26 +1,68 @@
 import type { Metadata } from 'next';
-import { Inter } from 'next/font/google';
+import { Inter, Cormorant_Garamond } from 'next/font/google';
 import './globals.css';
 import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/layout/Footer';
 
-const inter = Inter({ subsets: ['latin'] });
+const inter = Inter({
+  subsets: ['latin'],
+  variable: '--font-sans',
+  display: 'swap',
+});
+
+const cormorant = Cormorant_Garamond({
+  subsets: ['latin'],
+  weight: ['400', '500', '600', '700'],
+  variable: '--font-serif',
+  display: 'swap',
+});
+
+const SITE_NAME = 'OBLINTZ';
+const DEFAULT_TITLE = 'OBLINTZ — Parfum Original Premium & Parfum Import';
+const DEFAULT_DESCRIPTION =
+  'Belanja parfum original premium di OBLINTZ. Koleksi parfum pria, wanita, dan unisex pilihan dengan jaminan keaslian, gift wrapping, dan pengiriman cepat ke seluruh Indonesia.';
 
 export const metadata: Metadata = {
-  title: 'OBLINTZ - Premium Perfume E-Commerce',
-  description: 'Temukan parfum premium favorit Anda di OBLINTZ. Koleksi parfum original dengan harga terbaik.',
+  // `%s` is replaced by each page's own title; pages that need a standalone
+  // title use `title: { absolute: '...' }`.
+  title: {
+    default: DEFAULT_TITLE,
+    template: `%s | ${SITE_NAME}`,
+  },
+  description: DEFAULT_DESCRIPTION,
+  applicationName: SITE_NAME,
+  keywords: [
+    'parfum original',
+    'parfum premium',
+    'parfum import',
+    'parfum pria',
+    'parfum wanita',
+    'parfum unisex',
+    'jual parfum',
+    'OBLINTZ',
+  ],
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || 'https://oblintz.com'),
   openGraph: {
-    title: 'OBLINTZ - Premium Perfume E-Commerce',
-    description: 'Temukan parfum premium favorit Anda di OBLINTZ. Koleksi parfum original dengan harga terbaik.',
-    siteName: 'OBLINTZ',
+    title: DEFAULT_TITLE,
+    description: DEFAULT_DESCRIPTION,
+    siteName: SITE_NAME,
     type: 'website',
     locale: 'id_ID',
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'OBLINTZ - Premium Perfume E-Commerce',
-    description: 'Temukan parfum premium favorit Anda di OBLINTZ. Koleksi parfum original dengan harga terbaik.',
+    title: DEFAULT_TITLE,
+    description: DEFAULT_DESCRIPTION,
+  },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      'max-image-preview': 'large',
+      'max-snippet': -1,
+    },
   },
   alternates: {
     canonical: '/',
@@ -33,8 +75,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="id">
-      <body className={inter.className}>
+    <html lang="id" className={`${inter.variable} ${cormorant.variable}`}>
+      <body className="font-sans">
         <a href="#main-content" className="sr-only focus:not-sr-only focus:absolute focus:z-[999] focus:bg-white focus:px-4 focus:py-2 focus:font-medium focus:text-primary-600 focus:shadow-lg">
           Skip to content
         </a>

@@ -7,6 +7,10 @@ module.exports = {
   ],
   theme: {
     extend: {
+      fontFamily: {
+        sans: ['var(--font-sans)', 'system-ui', 'sans-serif'],
+        serif: ['var(--font-serif)', 'Georgia', 'Cambria', 'serif'],
+      },
       colors: {
         primary: {
           50: '#fdf4f3',
@@ -21,6 +25,35 @@ module.exports = {
           900: '#763028',
           950: '#401510',
         },
+        // Warm antique-gold accent for eyebrows, hairlines and luxury detailing
+        gold: {
+          50: '#fbf7ef',
+          100: '#f5ecd7',
+          200: '#e9d5a8',
+          300: '#dcbb75',
+          400: '#cfa24f',
+          500: '#c08a34',
+          600: '#a56f29',
+          700: '#845423',
+          800: '#6e4622',
+          900: '#5e3c20',
+        },
+        // Warm neutral canvas
+        cream: '#faf7f2',
+      },
+      keyframes: {
+        'fade-up': {
+          '0%': { opacity: '0', transform: 'translateY(16px)' },
+          '100%': { opacity: '1', transform: 'translateY(0)' },
+        },
+        marquee: {
+          '0%': { transform: 'translateX(0)' },
+          '100%': { transform: 'translateX(-50%)' },
+        },
+      },
+      animation: {
+        'fade-up': 'fade-up 0.7s cubic-bezier(0.16, 1, 0.3, 1) both',
+        marquee: 'marquee 32s linear infinite',
       },
     },
   },

@@ -5,6 +5,13 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
+    coverage: {
+      provider: 'v8',
+      all: true,
+      include: ['src/modules/**'],
+      reporter: ['text', 'json-summary'],
+      reportsDirectory: 'coverage',
+    },
   },
   resolve: {
     alias: {

@@ -40,6 +40,7 @@
     "@types/bcrypt": "^5.0.2",
     "@types/node": "^20.11.5",
     "@types/sendgrid": "^2.0.31",
+    "@vitest/coverage-v8": "1.6.1",
     "prisma": "^5.8.1",
     "tsx": "^4.7.0",
     "typescript": "^5.3.3",
