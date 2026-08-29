@@ -1,15 +1,16 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import api from '@/lib/api';
-import { formatCurrency } from '@/lib/utils';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent } from '@/components/ui/Card';
 import { LoadingPage } from '@/components/ui/Loading';
 import { Modal, ModalHeader } from '@/components/ui/Modal';
 import { ProductCard } from '@/components/product/ProductCard';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { useToast, ToastContainer } from '@/components/ui/Toast';
 
 interface Collection {
   id: string;
@@ -31,13 +32,19 @@ interface Collection {
 
 export default function CollectionsPage() {
   const router = useRouter();
+  const { toasts, success, error: showError } = useToast();
   const [collections, setCollections] = useState<Collection[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isError, setIsError] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newName, setNewName] = useState('');
   const [isCreating, setIsCreating] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState<{ open: boolean; id: string | null }>({
+    open: false,
+    id: null,
+  });
 
-  const refreshCollections = async () => {
+  const refreshCollections = useCallback(async (signal?: AbortSignal) => {
     const token = localStorage.getItem('accessToken');
     if (!token) {
       router.push('/login');
@@ -47,44 +54,25 @@ export default function CollectionsPage() {
     try {
       const response = await api.get('/api/collections', {
         headers: { Authorization: `Bearer ${token}` },
+        signal,
       });
       setCollections(response.data.data);
-    } catch (error) {
-      console.error('Gagal memuat koleksi:', error);
+      setIsError(false);
+    } catch (err: any) {
+      if (err?.name !== 'AbortError') {
+        console.error('Gagal memuat koleksi:', err);
+        setIsError(true);
+      }
     }
-  };
+  }, [router]);
 
   useEffect(() => {
     const controller = new AbortController();
-
-    const fetchData = async () => {
-      const token = localStorage.getItem('accessToken');
-      if (!token) {
-        router.push('/login');
-        return;
-      }
-
-      try {
-        const response = await api.get('/api/collections', {
-          headers: { Authorization: `Bearer ${token}` },
-          signal: controller.signal,
-        });
-        setCollections(response.data.data);
-      } catch (error: any) {
-        if (error?.name !== 'AbortError') {
-          console.error('Gagal memuat koleksi:', error);
-        }
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchData();
-
+    refreshCollections(controller.signal).finally(() => setIsLoading(false));
     return () => controller.abort();
-  }, []);
+  }, [refreshCollections]);
 
-  const handleCreate = async () => {
+  const handleCreate = useCallback(async () => {
     if (!newName.trim()) return;
     setIsCreating(true);
 
@@ -98,31 +86,58 @@ export default function CollectionsPage() {
       setShowCreateModal(false);
       setNewName('');
       refreshCollections();
-    } catch (error) {
-      console.error('Gagal membuat koleksi:', error);
+      success('Koleksi berhasil dibuat');
+    } catch (err) {
+      console.error('Gagal membuat koleksi:', err);
+      showError('Gagal membuat koleksi');
     } finally {
       setIsCreating(false);
     }
-  };
+  }, [newName, refreshCollections, success, showError]);
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('Yakin ingin menghapus koleksi ini?')) return;
+  const handleDeleteConfirm = useCallback(async () => {
+    if (!deleteConfirm.id) return;
 
     const token = localStorage.getItem('accessToken');
     try {
-      await api.delete(`/api/collections/${id}`, {
+      await api.delete(`/api/collections/${deleteConfirm.id}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       refreshCollections();
-    } catch (error) {
-      console.error('Gagal menghapus:', error);
+      success('Koleksi berhasil dihapus');
+    } catch (err) {
+      console.error('Gagal menghapus:', err);
+      showError('Gagal menghapus koleksi');
+    } finally {
+      setDeleteConfirm({ open: false, id: null });
     }
-  };
+  }, [deleteConfirm.id, refreshCollections, success, showError]);
 
   if (isLoading) return <LoadingPage />;
+  if (isError) {
+    return (
+      <div className="mx-auto max-w-7xl px-4 py-16 text-center">
+        <span className="text-6xl">⚠️</span>
+        <h1 className="mt-4 text-2xl font-bold text-gray-900">Gagal Memuat Koleksi</h1>
+        <p className="mt-2 text-gray-500">Terjadi kesalahan saat memuat data koleksi Anda</p>
+        <Button className="mt-6" onClick={() => { setIsError(false); refreshCollections(); }}>Coba Lagi</Button>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8">
+      <ToastContainer toasts={toasts} />
+      <ConfirmDialog
+        isOpen={deleteConfirm.open}
+        onConfirm={handleDeleteConfirm}
+        onCancel={() => setDeleteConfirm({ open: false, id: null })}
+        title="Hapus Koleksi"
+        message="Yakin ingin menghapus koleksi ini? Semua produk di dalamnya akan dihapus dari koleksi."
+        confirmLabel="Hapus"
+        variant="danger"
+      />
+
       <div className="mb-8 flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Koleksiku</h1>
@@ -170,7 +185,7 @@ export default function CollectionsPage() {
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => handleDelete(collection.id)}
+                    onClick={() => setDeleteConfirm({ open: true, id: collection.id })}
                     className="text-red-500 hover:text-red-600"
                   >
                     Hapus

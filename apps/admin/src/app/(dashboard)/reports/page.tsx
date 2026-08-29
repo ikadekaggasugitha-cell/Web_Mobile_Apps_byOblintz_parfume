@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 
@@ -13,8 +13,19 @@ interface DashboardData {
     totalSubscriptions: number;
     revenueThisMonth: number;
   };
-  recentOrders: any[];
-  topProducts: any[];
+  recentOrders: {
+    id: string;
+    orderNumber: string;
+    status: string;
+    totalAmount: number;
+    user: { name: string };
+  }[];
+  topProducts: {
+    name: string;
+    price: number;
+    totalSold: number;
+    orderCount: number;
+  }[];
 }
 
 interface SalesData {
@@ -61,26 +72,30 @@ export default function AdminReportsPage() {
     return () => controller.abort();
   }, [salesPeriod]);
 
+  const statCards = useMemo(() => {
+    if (!dashboard) return [];
+    return [
+      { title: 'Total Pesanan', value: dashboard.stats.totalOrders, icon: '📦', color: 'bg-blue-500' },
+      { title: 'Pendapatan Bulan Ini', value: formatCurrency(dashboard.stats.revenueThisMonth), icon: '💰', color: 'bg-green-500' },
+      { title: 'Produk Aktif', value: dashboard.stats.totalProducts, icon: '🏷️', color: 'bg-purple-500' },
+      { title: 'Total Pengguna', value: dashboard.stats.totalUsers, icon: '👥', color: 'bg-orange-500' },
+      { title: 'Langganan Aktif', value: dashboard.stats.totalSubscriptions, icon: '📦', color: 'bg-cyan-500' },
+      { title: 'Pesanan Bulan Ini', value: dashboard.stats.ordersThisMonth, icon: '📈', color: 'bg-pink-500' },
+    ];
+  }, [dashboard]);
+
+  const maxRevenue = useMemo(() => {
+    if (!sales) return 1;
+    return Math.max(...sales.chart.map((d) => d.revenue), 1);
+  }, [sales]);
+
   if (isLoading) return <div className="p-8 text-center text-gray-500">Memuat laporan...</div>;
   if (!dashboard || !sales) return null;
-
-  const statCards = [
-    { title: 'Total Pesanan', value: dashboard.stats.totalOrders, icon: '📦', color: 'bg-blue-500' },
-    { title: 'Pendapatan Bulan Ini', value: formatCurrency(dashboard.stats.revenueThisMonth), icon: '💰', color: 'bg-green-500' },
-    { title: 'Produk Aktif', value: dashboard.stats.totalProducts, icon: '🏷️', color: 'bg-purple-500' },
-    { title: 'Total Pengguna', value: dashboard.stats.totalUsers, icon: '👥', color: 'bg-orange-500' },
-    { title: 'Langganan Aktif', value: dashboard.stats.totalSubscriptions, icon: '📦', color: 'bg-cyan-500' },
-    { title: 'Pesanan Bulan Ini', value: dashboard.stats.ordersThisMonth, icon: '📈', color: 'bg-pink-500' },
-  ];
-
-  // Calculate max for chart scaling
-  const maxRevenue = Math.max(...sales.chart.map((d) => d.revenue), 1);
 
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold text-gray-900">Laporan</h1>
 
-      {/* Stats Grid */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {statCards.map((stat) => (
           <div key={stat.title} className="rounded-xl bg-white p-6 shadow-sm">
@@ -97,7 +112,6 @@ export default function AdminReportsPage() {
         ))}
       </div>
 
-      {/* Sales Chart */}
       <div className="rounded-xl bg-white p-6 shadow-sm">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-gray-900">Penjualan</h2>
@@ -112,7 +126,6 @@ export default function AdminReportsPage() {
           </select>
         </div>
 
-        {/* Summary */}
         <div className="mb-6 grid grid-cols-3 gap-4 rounded-lg bg-gray-50 p-4">
           <div>
             <p className="text-sm text-gray-500">Total Pendapatan</p>
@@ -128,7 +141,6 @@ export default function AdminReportsPage() {
           </div>
         </div>
 
-        {/* Simple Bar Chart */}
         <div className="flex items-end gap-1" style={{ height: 200 }}>
           {sales.chart.slice(-30).map((d, i) => (
             <div key={i} className="group relative flex-1">
@@ -139,7 +151,6 @@ export default function AdminReportsPage() {
               <div className="mt-1 hidden text-center text-xs text-gray-500 group-hover:block">
                 {d.date.slice(5)}
               </div>
-              {/* Tooltip */}
               <div className="pointer-events-none absolute bottom-full left-1/2 mb-2 hidden -translate-x-1/2 whitespace-nowrap rounded-lg bg-gray-900 px-3 py-2 text-xs text-white group-hover:block">
                 <p className="font-medium">{formatCurrency(d.revenue)}</p>
                 <p className="text-gray-400">{d.count} pesanan</p>
@@ -149,7 +160,6 @@ export default function AdminReportsPage() {
         </div>
       </div>
 
-      {/* Top Products */}
       <div className="rounded-xl bg-white p-6 shadow-sm">
         <h2 className="mb-4 text-lg font-semibold text-gray-900">Produk Terlaris</h2>
         {dashboard.topProducts.length === 0 ? (

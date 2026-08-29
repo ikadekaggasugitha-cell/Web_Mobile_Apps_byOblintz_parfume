@@ -1,8 +1,10 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
+import type { Pagination } from '@oblintz/shared';
+import { useToast, ToastContainer } from '@/components/ui/Toast';
 
 interface Subscription {
   id: string;
@@ -33,12 +35,13 @@ const FREQUENCY_LABELS: Record<string, string> = {
 };
 
 export default function AdminSubscriptionsPage() {
+  const { toasts, error: showError } = useToast();
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('');
-  const [pagination, setPagination] = useState<any>(null);
+  const [pagination, setPagination] = useState<Pagination | null>(null);
 
-  const fetchSubscriptions = async (page = 1) => {
+  const refreshSubscriptions = useCallback(async (page = 1, signal?: AbortSignal) => {
     setIsLoading(true);
     const token = localStorage.getItem('adminAccessToken');
 
@@ -51,57 +54,40 @@ export default function AdminSubscriptionsPage() {
 
       const response = await api.get(`/api/subscriptions/admin/all?${params}`, {
         headers: { Authorization: `Bearer ${token}` },
+        signal,
       });
 
       setSubscriptions(response.data.data.subscriptions);
       setPagination(response.data.data.pagination);
-    } catch (error) {
-      console.error('Gagal memuat langganan:', error);
+    } catch (error: any) {
+      if (error?.name !== 'AbortError') {
+        console.error('Gagal memuat langganan:', error);
+      }
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [statusFilter]);
 
   useEffect(() => {
     const controller = new AbortController();
-
-    const fetchData = async (page = 1) => {
-      setIsLoading(true);
-      const token = localStorage.getItem('adminAccessToken');
-
-      try {
-        const params = new URLSearchParams({
-          page: page.toString(),
-          limit: '20',
-        });
-        if (statusFilter) params.set('status', statusFilter);
-
-        const response = await api.get(`/api/subscriptions/admin/all?${params}`, {
-          headers: { Authorization: `Bearer ${token}` },
-          signal: controller.signal,
-        });
-
-        setSubscriptions(response.data.data.subscriptions);
-        setPagination(response.data.data.pagination);
-      } catch (error: any) {
-        if (error?.name !== 'AbortError') {
-          console.error('Gagal memuat langganan:', error);
-        }
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchData();
-
+    refreshSubscriptions(1, controller.signal);
     return () => controller.abort();
-  }, [statusFilter]);
+  }, [refreshSubscriptions]);
+
+  const handlePageChange = useCallback((page: number) => {
+    refreshSubscriptions(page);
+  }, [refreshSubscriptions]);
+
+  const paginationPages = useMemo(() => {
+    if (!pagination) return [];
+    return Array.from({ length: pagination.totalPages }, (_, i) => i + 1);
+  }, [pagination]);
 
   return (
     <div className="space-y-6">
+      <ToastContainer toasts={toasts} />
       <h1 className="text-2xl font-bold text-gray-900">Langganan</h1>
 
-      {/* Filters */}
       <div className="flex items-center gap-4">
         <select
           value={statusFilter}
@@ -116,7 +102,6 @@ export default function AdminSubscriptionsPage() {
         </select>
       </div>
 
-      {/* Subscriptions Table */}
       <div className="rounded-xl bg-white shadow-sm">
         {isLoading ? (
           <div className="p-8 text-center text-gray-500">Memuat...</div>
@@ -180,24 +165,21 @@ export default function AdminSubscriptionsPage() {
           </div>
         )}
 
-        {/* Pagination */}
         {pagination && pagination.totalPages > 1 && (
           <div className="flex justify-center gap-2 border-t border-gray-200 p-4">
-            {Array.from({ length: pagination.totalPages }, (_, i) => i + 1).map(
-              (p) => (
-                <button
-                  key={p}
-                  onClick={() => fetchSubscriptions(p)}
-                  className={`h-8 rounded-lg px-3 text-sm ${
-                    p === pagination.page
-                      ? 'bg-primary-500 text-white'
-                      : 'bg-gray-100 hover:bg-gray-200'
-                  }`}
-                >
-                  {p}
-                </button>
-              )
-            )}
+            {paginationPages.map((p) => (
+              <button
+                key={p}
+                onClick={() => handlePageChange(p)}
+                className={`h-8 rounded-lg px-3 text-sm ${
+                  p === pagination.page
+                    ? 'bg-primary-500 text-white'
+                    : 'bg-gray-100 hover:bg-gray-200'
+                }`}
+              >
+                {p}
+              </button>
+            ))}
           </div>
         )}
       </div>

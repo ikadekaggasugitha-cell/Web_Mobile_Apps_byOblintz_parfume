@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import api from '@/lib/api';
 import { ProductCard } from '@/components/product/ProductCard';
 import { LoadingPage } from '@/components/ui/Loading';
@@ -39,7 +39,7 @@ export default function ProductsPage() {
   const [sort, setSort] = useState('newest');
   const [search, setSearch] = useState('');
 
-  const fetchProducts = async (page = 1) => {
+  const fetchProducts = useCallback(async (page = 1, signal?: AbortSignal) => {
     setIsLoading(true);
     try {
       const params = new URLSearchParams({
@@ -49,52 +49,42 @@ export default function ProductsPage() {
       });
       if (search) params.set('search', search);
 
-      const response = await api.get(`/api/products?${params}`);
+      const response = await api.get(`/api/products?${params}`, { signal });
       setProducts(response.data.data.products);
       setPagination(response.data.data.pagination);
-    } catch (error) {
-      console.error('Gagal memuat produk:', error);
+    } catch (err: any) {
+      if (err?.name !== 'AbortError') {
+        console.error('Gagal memuat produk:', err);
+      }
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [sort, search]);
 
   useEffect(() => {
     const controller = new AbortController();
-
-    const fetchData = async (page = 1) => {
-      setIsLoading(true);
-      try {
-        const params = new URLSearchParams({
-          page: page.toString(),
-          limit: '12',
-          sort,
-        });
-        if (search) params.set('search', search);
-
-        const response = await api.get(`/api/products?${params}`, {
-          signal: controller.signal,
-        });
-        setProducts(response.data.data.products);
-        setPagination(response.data.data.pagination);
-      } catch (error: any) {
-        if (error?.name !== 'AbortError') {
-          console.error('Gagal memuat produk:', error);
-        }
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchData();
-
+    fetchProducts(1, controller.signal);
     return () => controller.abort();
-  }, [sort]);
+  }, [fetchProducts]);
 
-  const handleSearch = (e: React.FormEvent) => {
+  const handleSearch = useCallback((e: React.FormEvent) => {
     e.preventDefault();
-    fetchProducts();
-  };
+  }, []);
+
+  const handlePageChange = useCallback((page: number) => {
+    fetchProducts(page);
+  }, [fetchProducts]);
+
+  const paginationPages = useMemo(() => {
+    if (!pagination) return [];
+    return Array.from({ length: pagination.totalPages }, (_, i) => i + 1)
+      .filter(
+        (p) =>
+          p === 1 ||
+          p === pagination.totalPages ||
+          Math.abs(p - pagination.page) <= 2
+      );
+  }, [pagination]);
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8">
@@ -155,27 +145,20 @@ export default function ProductsPage() {
           {/* Pagination */}
           {pagination && pagination.totalPages > 1 && (
             <div className="mt-8 flex justify-center gap-2">
-              {Array.from({ length: pagination.totalPages }, (_, i) => i + 1)
-                .filter(
-                  (p) =>
-                    p === 1 ||
-                    p === pagination.totalPages ||
-                    Math.abs(p - pagination.page) <= 2
-                )
-                .map((p, idx, arr) => (
-                  <span key={p} className="flex items-center">
-                    {idx > 0 && arr[idx - 1] !== p - 1 && (
-                      <span className="px-2 text-gray-400">...</span>
-                    )}
-                    <Button
-                      variant={p === pagination.page ? 'default' : 'outline'}
-                      size="sm"
-                      onClick={() => fetchProducts(p)}
-                    >
-                      {p}
-                    </Button>
-                  </span>
-                ))}
+              {paginationPages.map((p, idx, arr) => (
+                <span key={p} className="flex items-center">
+                  {idx > 0 && arr[idx - 1] !== p - 1 && (
+                    <span className="px-2 text-gray-400">...</span>
+                  )}
+                  <Button
+                    variant={p === pagination.page ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => handlePageChange(p)}
+                  >
+                    {p}
+                  </Button>
+                </span>
+              ))}
             </div>
           )}
         </>

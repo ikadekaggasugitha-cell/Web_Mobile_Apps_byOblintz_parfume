@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -9,6 +9,8 @@ import { formatCurrency } from '@/lib/utils';
 import { Button } from '@/components/ui/Button';
 import { LoadingPage } from '@/components/ui/Loading';
 import { Card } from '@/components/ui/Card';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { useToast, ToastContainer } from '@/components/ui/Toast';
 
 interface CartItem {
   id: string;
@@ -37,13 +39,19 @@ interface CartData {
 
 export default function CartPage() {
   const router = useRouter();
+  const { toasts, success, error: showError } = useToast();
   const [cart, setCart] = useState<CartData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isError, setIsError] = useState(false);
   const [promoCode, setPromoCode] = useState('');
   const [promoDiscount, setPromoDiscount] = useState(0);
   const [isApplyingPromo, setIsApplyingPromo] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState<{ open: boolean; productId: string | null }>({
+    open: false,
+    productId: null,
+  });
 
-  const refreshCart = async () => {
+  const refreshCart = useCallback(async (signal?: AbortSignal) => {
     const token = localStorage.getItem('accessToken');
     if (!token) {
       router.push('/login');
@@ -53,86 +61,77 @@ export default function CartPage() {
     try {
       const response = await api.get('/api/cart', {
         headers: { Authorization: `Bearer ${token}` },
+        signal,
       });
       setCart(response.data.data);
-    } catch (error) {
-      console.error('Gagal memuat keranjang:', error);
+      setIsError(false);
+    } catch (err: any) {
+      if (err?.name !== 'AbortError') {
+        console.error('Gagal memuat keranjang:', err);
+        setIsError(true);
+      }
     }
-  };
+  }, [router]);
 
   useEffect(() => {
     const controller = new AbortController();
-
-    const fetchData = async () => {
-      const token = localStorage.getItem('accessToken');
-      if (!token) {
-        router.push('/login');
-        return;
-      }
-
-      try {
-        const response = await api.get('/api/cart', {
-          headers: { Authorization: `Bearer ${token}` },
-          signal: controller.signal,
-        });
-        setCart(response.data.data);
-      } catch (error: any) {
-        if (error?.name !== 'AbortError') {
-          console.error('Gagal memuat keranjang:', error);
-        }
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchData();
-
+    refreshCart(controller.signal).finally(() => setIsLoading(false));
     return () => controller.abort();
-  }, []);
+  }, [refreshCart]);
 
-  const updateQuantity = async (productId: string, quantity: number) => {
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const updateQuantity = useCallback((productId: string, quantity: number) => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(async () => {
+      const token = localStorage.getItem('accessToken');
+      try {
+        await api.put(
+          `/api/cart/items/${productId}`,
+          { quantity },
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        refreshCart();
+      } catch (err) {
+        console.error('Gagal update:', err);
+      }
+    }, 300);
+  }, [refreshCart]);
+
+  const toggleGiftWrap = useCallback(async (productId: string, giftWrap: boolean) => {
     const token = localStorage.getItem('accessToken');
     try {
-      await api.put(
-        `/api/cart/items/${productId}`,
-        { quantity },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      refreshCart();
-    } catch (error) {
-      console.error('Gagal update:', error);
-    }
-  };
-
-  const toggleGiftWrap = async (productId: string, giftWrap: boolean) => {
-    const token = localStorage.getItem('accessToken');
-    const item = cart?.items.find((i: any) => i.id === productId);
-    if (!item) return;
-    try {
+      const item = cart?.items.find((i) => i.id === productId);
+      if (!item) return;
       await api.put(
         `/api/cart/items/${productId}`,
         { quantity: item.quantity, giftWrap },
         { headers: { Authorization: `Bearer ${token}` } }
       );
       refreshCart();
-    } catch (error) {
-      console.error('Gagal update gift wrap:', error);
+    } catch (err) {
+      console.error('Gagal update gift wrap:', err);
     }
-  };
+  }, [cart, refreshCart]);
 
-  const removeItem = async (productId: string) => {
+  const handleDeleteConfirm = useCallback(async () => {
+    if (!deleteConfirm.productId) return;
     const token = localStorage.getItem('accessToken');
     try {
-      await api.delete(`/api/cart/items/${productId}`, {
+      await api.delete(`/api/cart/items/${deleteConfirm.productId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       refreshCart();
-    } catch (error) {
-      console.error('Gagal hapus:', error);
+      success('Produk dihapus dari keranjang');
+    } catch (err) {
+      console.error('Gagal hapus:', err);
+      showError('Gagal menghapus produk');
+    } finally {
+      setDeleteConfirm({ open: false, productId: null });
     }
-  };
+  }, [deleteConfirm.productId, refreshCart, success, showError]);
 
-  const applyPromo = async () => {
+  const applyPromo = useCallback(async () => {
     if (!promoCode.trim()) return;
     setIsApplyingPromo(true);
 
@@ -144,13 +143,24 @@ export default function CartPage() {
         { headers: { Authorization: `Bearer ${token}` } }
       );
       setPromoDiscount(response.data.data.discount);
-    } catch (error: any) {
-      alert(error.response?.data?.error?.message || 'Kode promo tidak valid');
+      success('Kode promo berhasil diterapkan');
+    } catch (err: any) {
+      showError(err.response?.data?.error?.message || 'Kode promo tidak valid');
       setPromoDiscount(0);
     } finally {
       setIsApplyingPromo(false);
     }
-  };
+  }, [promoCode, success, showError]);
+
+  const shippingCost = useMemo(
+    () => (cart && cart.summary.subtotal >= 500000 ? 0 : 15000),
+    [cart]
+  );
+
+  const total = useMemo(
+    () => (cart ? cart.summary.subtotal + shippingCost - promoDiscount : 0),
+    [cart, shippingCost, promoDiscount]
+  );
 
   if (isLoading) return <LoadingPage />;
   if (!cart || cart.items.length === 0) {
@@ -168,11 +178,34 @@ export default function CartPage() {
     );
   }
 
-  const shippingCost = cart.summary.subtotal >= 500000 ? 0 : 15000;
-  const total = cart.summary.subtotal + shippingCost - promoDiscount;
+  if (isError) {
+    return (
+      <div className="mx-auto max-w-7xl px-4 py-16 text-center">
+        <div className="text-6xl mb-4">⚠️</div>
+        <h1 className="text-2xl font-bold text-gray-900">Gagal Memuat Keranjang</h1>
+        <p className="mt-2 text-gray-500">
+          Terjadi kesalahan saat memuat data keranjang Anda
+        </p>
+        <Button className="mt-6" onClick={() => { setIsError(false); refreshCart(); }}>
+          Coba Lagi
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8">
+      <ToastContainer toasts={toasts} />
+      <ConfirmDialog
+        isOpen={deleteConfirm.open}
+        onConfirm={handleDeleteConfirm}
+        onCancel={() => setDeleteConfirm({ open: false, productId: null })}
+        title="Hapus Produk"
+        message="Yakin ingin menghapus produk ini dari keranjang?"
+        confirmLabel="Hapus"
+        variant="danger"
+      />
+
       <h1 className="mb-8 text-3xl font-bold text-gray-900">Keranjang Belanja</h1>
 
       <div className="grid gap-8 lg:grid-cols-3">
@@ -214,7 +247,7 @@ export default function CartPage() {
 
                 <div className="flex flex-col items-end justify-between">
                   <button
-                    onClick={() => removeItem(item.id)}
+                    onClick={() => setDeleteConfirm({ open: true, productId: item.id })}
                     className="text-sm text-red-500 hover:underline"
                   >
                     Hapus
@@ -225,6 +258,7 @@ export default function CartPage() {
                         updateQuantity(item.id, Math.max(1, item.quantity - 1))
                       }
                       className="px-2 py-1 text-gray-600 hover:bg-gray-50"
+                      aria-label="Kurangi jumlah"
                     >
                       -
                     </button>
@@ -239,6 +273,7 @@ export default function CartPage() {
                         )
                       }
                       className="px-2 py-1 text-gray-600 hover:bg-gray-50"
+                      aria-label="Tambah jumlah"
                     >
                       +
                     </button>

@@ -1,9 +1,12 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
+import type { Pagination } from '@oblintz/shared';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { useToast, ToastContainer } from '@/components/ui/Toast';
 
 interface Product {
   id: string;
@@ -24,13 +27,18 @@ const STATUS_LABELS: Record<string, { label: string; color: string }> = {
 };
 
 export default function AdminProductsPage() {
+  const { toasts, success, error: showError } = useToast();
   const [products, setProducts] = useState<Product[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
-  const [pagination, setPagination] = useState<any>(null);
+  const [pagination, setPagination] = useState<Pagination | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<{ open: boolean; id: string | null }>({
+    open: false,
+    id: null,
+  });
 
-  const fetchProducts = async (page = 1) => {
+  const refreshProducts = useCallback(async (page = 1, signal?: AbortSignal) => {
     setIsLoading(true);
     const token = localStorage.getItem('adminAccessToken');
 
@@ -44,74 +52,70 @@ export default function AdminProductsPage() {
 
       const response = await api.get(`/api/products/admin/all?${params}`, {
         headers: { Authorization: `Bearer ${token}` },
+        signal,
       });
 
       setProducts(response.data.data.products);
       setPagination(response.data.data.pagination);
-    } catch (error) {
-      console.error('Gagal memuat produk:', error);
+    } catch (err: any) {
+      if (err?.name !== 'AbortError') {
+        console.error('Gagal memuat produk:', err);
+      }
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [search, statusFilter]);
 
   useEffect(() => {
     const controller = new AbortController();
-
-    const fetchData = async (page = 1) => {
-      setIsLoading(true);
-      const token = localStorage.getItem('adminAccessToken');
-
-      try {
-        const params = new URLSearchParams({
-          page: page.toString(),
-          limit: '20',
-        });
-        if (search) params.set('search', search);
-        if (statusFilter) params.set('status', statusFilter);
-
-        const response = await api.get(`/api/products/admin/all?${params}`, {
-          headers: { Authorization: `Bearer ${token}` },
-          signal: controller.signal,
-        });
-
-        setProducts(response.data.data.products);
-        setPagination(response.data.data.pagination);
-      } catch (error: any) {
-        if (error?.name !== 'AbortError') {
-          console.error('Gagal memuat produk:', error);
-        }
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchData();
-
+    refreshProducts(1, controller.signal);
     return () => controller.abort();
-  }, [statusFilter]);
+  }, [refreshProducts]);
 
-  const handleSearch = (e: React.FormEvent) => {
+  const handleSearch = useCallback((e: React.FormEvent) => {
     e.preventDefault();
-    fetchProducts();
-  };
+  }, []);
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('Yakin ingin menghapus produk ini?')) return;
+  const handleDeleteConfirm = useCallback(async () => {
+    if (!deleteConfirm.id) return;
 
     const token = localStorage.getItem('adminAccessToken');
     try {
-      await api.delete(`/api/products/admin/${id}`, {
+      await api.delete(`/api/products/admin/${deleteConfirm.id}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      fetchProducts();
-    } catch (error) {
-      console.error('Gagal menghapus:', error);
+      refreshProducts();
+      success('Produk berhasil dihapus');
+    } catch (err) {
+      console.error('Gagal menghapus:', err);
+      showError('Gagal menghapus produk');
+    } finally {
+      setDeleteConfirm({ open: false, id: null });
     }
-  };
+  }, [deleteConfirm.id, refreshProducts, success, showError]);
+
+  const handlePageChange = useCallback((page: number) => {
+    refreshProducts(page);
+  }, [refreshProducts]);
+
+  const paginationPages = useMemo(() => {
+    if (!pagination) return [];
+    return Array.from({ length: pagination.totalPages }, (_, i) => i + 1);
+  }, [pagination]);
 
   return (
     <div className="space-y-6">
+      <ToastContainer toasts={toasts} />
+      <ConfirmDialog
+        isOpen={deleteConfirm.open}
+        onConfirm={handleDeleteConfirm}
+        onCancel={() => setDeleteConfirm({ open: false, id: null })}
+        title="Hapus Produk"
+        message="Yakin ingin menghapus produk ini? Tindakan ini tidak dapat dibatalkan."
+        confirmLabel="Hapus"
+        variant="danger"
+      />
+
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">Produk</h1>
         <Link
@@ -224,7 +228,7 @@ export default function AdminProductsPage() {
                           Edit
                         </Link>
                         <button
-                          onClick={() => handleDelete(product.id)}
+                          onClick={() => setDeleteConfirm({ open: true, id: product.id })}
                           className="text-red-500 hover:underline"
                         >
                           Hapus
@@ -241,21 +245,19 @@ export default function AdminProductsPage() {
         {/* Pagination */}
         {pagination && pagination.totalPages > 1 && (
           <div className="flex justify-center gap-2 border-t border-gray-200 p-4">
-            {Array.from({ length: pagination.totalPages }, (_, i) => i + 1).map(
-              (p) => (
-                <button
-                  key={p}
-                  onClick={() => fetchProducts(p)}
-                  className={`h-8 rounded-lg px-3 text-sm ${
-                    p === pagination.page
-                      ? 'bg-primary-500 text-white'
-                      : 'bg-gray-100 hover:bg-gray-200'
-                  }`}
-                >
-                  {p}
-                </button>
-              )
-            )}
+            {paginationPages.map((p) => (
+              <button
+                key={p}
+                onClick={() => handlePageChange(p)}
+                className={`h-8 rounded-lg px-3 text-sm ${
+                  p === pagination.page
+                    ? 'bg-primary-500 text-white'
+                    : 'bg-gray-100 hover:bg-gray-200'
+                }`}
+              >
+                {p}
+              </button>
+            ))}
           </div>
         )}
       </div>

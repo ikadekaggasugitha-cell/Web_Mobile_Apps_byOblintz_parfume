@@ -25,20 +25,25 @@ export function Modal({ isOpen, onClose, children, className }: ModalProps) {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div
-        className="fixed inset-0 bg-black/50 transition-opacity"
-        onClick={onClose}
-      />
-      <div
-        className={cn(
-          'relative z-50 w-full max-w-md rounded-xl bg-white p-6 shadow-xl',
-          className
-        )}
+        className="fixed inset-0 z-50 flex items-center justify-center"
+        role="dialog"
+        aria-modal="true"
       >
-        {children}
+        <div
+          className="fixed inset-0 bg-black/50 transition-opacity"
+          onClick={onClose}
+          aria-hidden="true"
+        />
+        <div
+          className={cn(
+            'relative z-50 w-full max-w-md rounded-xl bg-white p-6 shadow-xl',
+            className
+          )}
+        >
+          {children}
+        </div>
       </div>
-    </div>
   );
 }
 
@@ -55,6 +60,7 @@ export function ModalHeader({ title, onClose }: ModalHeaderProps) {
         <button
           onClick={onClose}
           className="text-gray-400 hover:text-gray-600"
+          aria-label="Tutup"
         >
           ✕
         </button>

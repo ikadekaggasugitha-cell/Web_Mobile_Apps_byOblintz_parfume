@@ -1,8 +1,10 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
+import type { Pagination } from '@oblintz/shared';
+import { useToast, ToastContainer } from '@/components/ui/Toast';
 
 interface Order {
   id: string;
@@ -36,13 +38,14 @@ const STATUS_LABELS: Record<string, { label: string; color: string }> = {
 };
 
 export default function AdminOrdersPage() {
+  const { toasts, success, error: showError } = useToast();
   const [orders, setOrders] = useState<Order[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
-  const [pagination, setPagination] = useState<any>(null);
+  const [pagination, setPagination] = useState<Pagination | null>(null);
 
-  const fetchOrders = async (page = 1) => {
+  const refreshOrders = useCallback(async (page = 1, signal?: AbortSignal) => {
     setIsLoading(true);
     const token = localStorage.getItem('adminAccessToken');
 
@@ -56,59 +59,31 @@ export default function AdminOrdersPage() {
 
       const response = await api.get(`/api/orders/admin/all?${params}`, {
         headers: { Authorization: `Bearer ${token}` },
+        signal,
       });
 
       setOrders(response.data.data.orders);
       setPagination(response.data.data.pagination);
-    } catch (error) {
-      console.error('Gagal memuat pesanan:', error);
+    } catch (error: any) {
+      if (error?.name !== 'AbortError') {
+        console.error('Gagal memuat pesanan:', error);
+      }
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [search, statusFilter]);
 
   useEffect(() => {
     const controller = new AbortController();
-
-    const fetchData = async (page = 1) => {
-      setIsLoading(true);
-      const token = localStorage.getItem('adminAccessToken');
-
-      try {
-        const params = new URLSearchParams({
-          page: page.toString(),
-          limit: '20',
-        });
-        if (search) params.set('search', search);
-        if (statusFilter) params.set('status', statusFilter);
-
-        const response = await api.get(`/api/orders/admin/all?${params}`, {
-          headers: { Authorization: `Bearer ${token}` },
-          signal: controller.signal,
-        });
-
-        setOrders(response.data.data.orders);
-        setPagination(response.data.data.pagination);
-      } catch (error: any) {
-        if (error?.name !== 'AbortError') {
-          console.error('Gagal memuat pesanan:', error);
-        }
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchData();
-
+    refreshOrders(1, controller.signal);
     return () => controller.abort();
-  }, [statusFilter]);
+  }, [refreshOrders]);
 
-  const handleSearch = (e: React.FormEvent) => {
+  const handleSearch = useCallback((e: React.FormEvent) => {
     e.preventDefault();
-    fetchOrders();
-  };
+  }, []);
 
-  const updateStatus = async (orderId: string, newStatus: string) => {
+  const updateStatus = useCallback(async (orderId: string, newStatus: string) => {
     const token = localStorage.getItem('adminAccessToken');
     try {
       await api.put(
@@ -116,17 +91,28 @@ export default function AdminOrdersPage() {
         { status: newStatus },
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      fetchOrders();
+      refreshOrders();
+      success('Status pesanan berhasil diupdate');
     } catch (error) {
       console.error('Gagal update status:', error);
+      showError('Gagal mengupdate status pesanan');
     }
-  };
+  }, [refreshOrders, success, showError]);
+
+  const handlePageChange = useCallback((page: number) => {
+    refreshOrders(page);
+  }, [refreshOrders]);
+
+  const paginationPages = useMemo(() => {
+    if (!pagination) return [];
+    return Array.from({ length: pagination.totalPages }, (_, i) => i + 1);
+  }, [pagination]);
 
   return (
     <div className="space-y-6">
+      <ToastContainer toasts={toasts} />
       <h1 className="text-2xl font-bold text-gray-900">Pesanan</h1>
 
-      {/* Filters */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
         <form onSubmit={handleSearch} className="flex gap-2">
           <input
@@ -157,7 +143,6 @@ export default function AdminOrdersPage() {
         </select>
       </div>
 
-      {/* Orders Table */}
       <div className="rounded-xl bg-white shadow-sm">
         {isLoading ? (
           <div className="p-8 text-center text-gray-500">Memuat...</div>
@@ -232,24 +217,21 @@ export default function AdminOrdersPage() {
           </div>
         )}
 
-        {/* Pagination */}
         {pagination && pagination.totalPages > 1 && (
           <div className="flex justify-center gap-2 border-t border-gray-200 p-4">
-            {Array.from({ length: pagination.totalPages }, (_, i) => i + 1).map(
-              (p) => (
-                <button
-                  key={p}
-                  onClick={() => fetchOrders(p)}
-                  className={`h-8 rounded-lg px-3 text-sm ${
-                    p === pagination.page
-                      ? 'bg-primary-500 text-white'
-                      : 'bg-gray-100 hover:bg-gray-200'
-                  }`}
-                >
-                  {p}
-                </button>
-              )
-            )}
+            {paginationPages.map((p) => (
+              <button
+                key={p}
+                onClick={() => handlePageChange(p)}
+                className={`h-8 rounded-lg px-3 text-sm ${
+                  p === pagination.page
+                    ? 'bg-primary-500 text-white'
+                    : 'bg-gray-100 hover:bg-gray-200'
+                }`}
+              >
+                {p}
+              </button>
+            ))}
           </div>
         )}
       </div>

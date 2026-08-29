@@ -1,16 +1,18 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import api from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
+import type { CartData } from '@oblintz/shared';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { LoadingPage } from '@/components/ui/Loading';
+import { useToast, ToastContainer } from '@/components/ui/Toast';
 
 const checkoutSchema = z.object({
   name: z.string().min(2, 'Nama harus minimal 2 karakter'),
@@ -27,7 +29,8 @@ type CheckoutInput = z.infer<typeof checkoutSchema>;
 
 export default function CheckoutPage() {
   const router = useRouter();
-  const [cart, setCart] = useState<any>(null);
+  const { toasts, error: showError } = useToast();
+  const [cart, setCart] = useState<CartData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -59,9 +62,9 @@ export default function CheckoutPage() {
           signal: controller.signal,
         });
         setCart(response.data.data);
-      } catch (error: any) {
-        if (error?.name !== 'AbortError') {
-          console.error('Gagal memuat keranjang:', error);
+      } catch (err: any) {
+        if (err?.name !== 'AbortError') {
+          console.error('Gagal memuat keranjang:', err);
         }
       } finally {
         setIsLoading(false);
@@ -71,9 +74,9 @@ export default function CheckoutPage() {
     fetchCart();
 
     return () => controller.abort();
-  }, []);
+  }, [router]);
 
-  const onSubmit = async (data: CheckoutInput) => {
+  const onSubmit = useCallback(async (data: CheckoutInput) => {
     setIsSubmitting(true);
     const token = localStorage.getItem('accessToken');
 
@@ -95,23 +98,41 @@ export default function CheckoutPage() {
         { headers: { Authorization: `Bearer ${token}` } }
       );
 
-      const { orderId, orderNumber, totalAmount } = response.data.data;
+      const { orderId } = response.data.data;
 
-      // Create payment
-      const paymentResponse = await api.post(
+      await api.post(
         '/api/payments/create',
         { orderId },
         { headers: { Authorization: `Bearer ${token}` } }
       );
 
-      // Redirect to payment page
       router.push(`/payment/${orderId}`);
-    } catch (error: any) {
-      alert(error.response?.data?.error?.message || 'Checkout gagal');
+    } catch (err: any) {
+      showError(err.response?.data?.error?.message || 'Checkout gagal');
     } finally {
       setIsSubmitting(false);
     }
-  };
+  }, [router, showError]);
+
+  const shippingCost = useMemo(
+    () => (shippingMethod === 'express' ? 35000 : 15000),
+    [shippingMethod]
+  );
+
+  const freeShipping = useMemo(
+    () => cart && cart.summary.subtotal >= 500000,
+    [cart]
+  );
+
+  const actualShipping = useMemo(
+    () => (freeShipping ? 0 : shippingCost),
+    [freeShipping, shippingCost]
+  );
+
+  const total = useMemo(
+    () => (cart ? cart.summary.subtotal + actualShipping : 0),
+    [cart, actualShipping]
+  );
 
   if (isLoading) return <LoadingPage />;
   if (!cart || cart.items.length === 0) {
@@ -119,13 +140,9 @@ export default function CheckoutPage() {
     return null;
   }
 
-  const shippingCost = shippingMethod === 'express' ? 35000 : 15000;
-  const freeShipping = cart.summary.subtotal >= 500000;
-  const actualShipping = freeShipping ? 0 : shippingCost;
-  const total = cart.summary.subtotal + actualShipping;
-
   return (
     <div className="mx-auto max-w-7xl px-4 py-8">
+      <ToastContainer toasts={toasts} />
       <h1 className="mb-8 text-3xl font-bold text-gray-900">Checkout</h1>
 
       <form onSubmit={handleSubmit(onSubmit)}>

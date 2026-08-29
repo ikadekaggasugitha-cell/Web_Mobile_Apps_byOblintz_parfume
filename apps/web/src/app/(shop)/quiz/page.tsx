@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import api from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/Button';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { LoadingPage } from '@/components/ui/Loading';
 import { ProductCard } from '@/components/product/ProductCard';
+import { useToast, ToastContainer } from '@/components/ui/Toast';
 
 interface QuizOptions {
   occasion: { value: string; label: string; icon: string }[];
@@ -32,6 +33,7 @@ const STEPS = [
 
 export default function QuizPage() {
   const router = useRouter();
+  const { toasts, error: showError } = useToast();
   const [options, setOptions] = useState<QuizOptions | null>(null);
   const [currentStep, setCurrentStep] = useState(0);
   const [answers, setAnswers] = useState<QuizAnswers>({
@@ -53,9 +55,9 @@ export default function QuizPage() {
           signal: controller.signal,
         });
         setOptions(response.data.data);
-      } catch (error: any) {
-        if (error?.name !== 'AbortError') {
-          console.error('Gagal memuat opsi quiz:', error);
+      } catch (err: any) {
+        if (err?.name !== 'AbortError') {
+          console.error('Gagal memuat opsi quiz:', err);
         }
       } finally {
         setIsLoading(false);
@@ -67,39 +69,59 @@ export default function QuizPage() {
     return () => controller.abort();
   }, []);
 
-  const handleSelect = (key: keyof QuizAnswers, value: string) => {
+  const handleSelect = useCallback((key: keyof QuizAnswers, value: string) => {
     setAnswers((prev) => ({ ...prev, [key]: value }));
-  };
+  }, []);
 
-  const handleNext = () => {
+  const handleSubmit = useCallback(async () => {
+    setIsSubmitting(true);
+    try {
+      const response = await api.post('/api/quiz/submit', answers);
+      setRecommendations(response.data.data.recommendations);
+    } catch (err) {
+      console.error('Gagal submit quiz:', err);
+      showError('Gagal memuat rekomendasi');
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [answers, showError]);
+
+  const handleNext = useCallback(() => {
     if (currentStep < STEPS.length - 1) {
       setCurrentStep((prev) => prev + 1);
     } else {
       handleSubmit();
     }
-  };
+  }, [currentStep, handleSubmit]);
 
-  const handleBack = () => {
+  const handleBack = useCallback(() => {
     if (currentStep > 0) {
       setCurrentStep((prev) => prev - 1);
     }
-  };
+  }, [currentStep]);
 
-  const handleSubmit = async () => {
-    setIsSubmitting(true);
-    try {
-      const response = await api.post('/api/quiz/submit', answers);
-      setRecommendations(response.data.data.recommendations);
-    } catch (error) {
-      console.error('Gagal submit quiz:', error);
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
+  const handleReset = useCallback(() => {
+    setRecommendations([]);
+    setCurrentStep(0);
+    setAnswers({ occasion: '', personality: '', season: '', budget: '' });
+  }, []);
+
+  const step = useMemo(() => STEPS[currentStep], [currentStep]);
+  const currentOptions = useMemo(
+    () => options?.[step.key as keyof QuizOptions] || [],
+    [options, step.key]
+  );
+  const progress = useMemo(
+    () => ((currentStep + 1) / STEPS.length) * 100,
+    [currentStep]
+  );
+  const isStepValid = useMemo(
+    () => !!answers[step.key as keyof QuizAnswers],
+    [answers, step.key]
+  );
 
   if (isLoading) return <LoadingPage />;
 
-  // Hasil rekomendasi
   if (recommendations.length > 0) {
     return (
       <div className="mx-auto max-w-7xl px-4 py-8">
@@ -120,14 +142,7 @@ export default function QuizPage() {
         </div>
 
         <div className="mt-8 text-center">
-          <Button
-            variant="outline"
-            onClick={() => {
-              setRecommendations([]);
-              setCurrentStep(0);
-              setAnswers({ occasion: '', personality: '', season: '', budget: '' });
-            }}
-          >
+          <Button variant="outline" onClick={handleReset}>
             Mulai Ulang Quiz
           </Button>
         </div>
@@ -135,13 +150,10 @@ export default function QuizPage() {
     );
   }
 
-  // Quiz steps
-  const step = STEPS[currentStep];
-  const currentOptions = options?.[step.key as keyof QuizOptions] || [];
-  const progress = ((currentStep + 1) / STEPS.length) * 100;
-
   return (
     <div className="mx-auto max-w-2xl px-4 py-8">
+      <ToastContainer toasts={toasts} />
+
       {/* Progress Bar */}
       <div className="mb-8">
         <div className="flex items-center justify-between text-sm text-gray-500">
@@ -204,7 +216,7 @@ export default function QuizPage() {
         </Button>
         <Button
           onClick={handleNext}
-          disabled={!answers[step.key as keyof QuizAnswers] || isSubmitting}
+          disabled={!isStepValid || isSubmitting}
           isLoading={isSubmitting}
         >
           {currentStep === STEPS.length - 1 ? 'Lihat Hasil' : 'Selanjutnya'}

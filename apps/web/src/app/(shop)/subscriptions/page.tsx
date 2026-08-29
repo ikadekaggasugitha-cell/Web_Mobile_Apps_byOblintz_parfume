@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useMemo, memo } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -10,6 +10,8 @@ import { Button } from '@/components/ui/Button';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { LoadingPage } from '@/components/ui/Loading';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { useToast, ToastContainer } from '@/components/ui/Toast';
 
 interface Subscription {
   id: string;
@@ -40,10 +42,16 @@ const FREQUENCY_LABELS: Record<string, string> = {
 
 export default function SubscriptionsPage() {
   const router = useRouter();
+  const { toasts, success, error: showError } = useToast();
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isError, setIsError] = useState(false);
+  const [cancelConfirm, setCancelConfirm] = useState<{ open: boolean; id: string | null }>({
+    open: false,
+    id: null,
+  });
 
-  const refreshSubscriptions = async () => {
+  const refreshSubscriptions = useCallback(async (signal?: AbortSignal) => {
     const token = localStorage.getItem('accessToken');
     if (!token) {
       router.push('/login');
@@ -53,44 +61,25 @@ export default function SubscriptionsPage() {
     try {
       const response = await api.get('/api/subscriptions', {
         headers: { Authorization: `Bearer ${token}` },
+        signal,
       });
       setSubscriptions(response.data.data);
-    } catch (error) {
-      console.error('Gagal memuat langganan:', error);
+      setIsError(false);
+    } catch (err: any) {
+      if (err?.name !== 'AbortError') {
+        console.error('Gagal memuat langganan:', err);
+        setIsError(true);
+      }
     }
-  };
+  }, [router]);
 
   useEffect(() => {
     const controller = new AbortController();
-
-    const fetchData = async () => {
-      const token = localStorage.getItem('accessToken');
-      if (!token) {
-        router.push('/login');
-        return;
-      }
-
-      try {
-        const response = await api.get('/api/subscriptions', {
-          headers: { Authorization: `Bearer ${token}` },
-          signal: controller.signal,
-        });
-        setSubscriptions(response.data.data);
-      } catch (error: any) {
-        if (error?.name !== 'AbortError') {
-          console.error('Gagal memuat langganan:', error);
-        }
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchData();
-
+    refreshSubscriptions(controller.signal).finally(() => setIsLoading(false));
     return () => controller.abort();
-  }, []);
+  }, [refreshSubscriptions]);
 
-  const handlePause = async (id: string) => {
+  const handlePause = useCallback(async (id: string) => {
     const token = localStorage.getItem('accessToken');
     try {
       await api.post(
@@ -99,12 +88,14 @@ export default function SubscriptionsPage() {
         { headers: { Authorization: `Bearer ${token}` } }
       );
       refreshSubscriptions();
-    } catch (error) {
-      console.error('Gagal menjeda:', error);
+      success('Langganan berhasil dijeda');
+    } catch (err) {
+      console.error('Gagal menjeda:', err);
+      showError('Gagal menjeda langganan');
     }
-  };
+  }, [refreshSubscriptions, success, showError]);
 
-  const handleResume = async (id: string) => {
+  const handleResume = useCallback(async (id: string) => {
     const token = localStorage.getItem('accessToken');
     try {
       await api.post(
@@ -113,35 +104,71 @@ export default function SubscriptionsPage() {
         { headers: { Authorization: `Bearer ${token}` } }
       );
       refreshSubscriptions();
-    } catch (error) {
-      console.error('Gagal melanjutkan:', error);
+      success('Langganan berhasil dilanjutkan');
+    } catch (err) {
+      console.error('Gagal melanjutkan:', err);
+      showError('Gagal melanjutkan langganan');
     }
-  };
+  }, [refreshSubscriptions, success, showError]);
 
-  const handleCancel = async (id: string) => {
-    if (!confirm('Yakin ingin membatalkan langganan ini?')) return;
+  const handleCancelConfirm = useCallback(async () => {
+    if (!cancelConfirm.id) return;
 
     const token = localStorage.getItem('accessToken');
     try {
       await api.post(
-        `/api/subscriptions/${id}/cancel`,
+        `/api/subscriptions/${cancelConfirm.id}/cancel`,
         {},
         { headers: { Authorization: `Bearer ${token}` } }
       );
       refreshSubscriptions();
-    } catch (error) {
-      console.error('Gagal membatalkan:', error);
+      success('Langganan berhasil dibatalkan');
+    } catch (err) {
+      console.error('Gagal membatalkan:', err);
+      showError('Gagal membatalkan langganan');
+    } finally {
+      setCancelConfirm({ open: false, id: null });
     }
-  };
+  }, [cancelConfirm.id, refreshSubscriptions, success, showError]);
+
+  const activeSubscriptions = useMemo(
+    () => subscriptions.filter((s) => s.status === 'ACTIVE'),
+    [subscriptions]
+  );
+  const pausedSubscriptions = useMemo(
+    () => subscriptions.filter((s) => s.status === 'PAUSED'),
+    [subscriptions]
+  );
+  const cancelledSubscriptions = useMemo(
+    () => subscriptions.filter((s) => s.status === 'CANCELLED'),
+    [subscriptions]
+  );
 
   if (isLoading) return <LoadingPage />;
-
-  const activeSubscriptions = subscriptions.filter((s) => s.status === 'ACTIVE');
-  const pausedSubscriptions = subscriptions.filter((s) => s.status === 'PAUSED');
-  const cancelledSubscriptions = subscriptions.filter((s) => s.status === 'CANCELLED');
+  if (isError) {
+    return (
+      <div className="mx-auto max-w-7xl px-4 py-16 text-center">
+        <span className="text-6xl">⚠️</span>
+        <h1 className="mt-4 text-2xl font-bold text-gray-900">Gagal Memuat Langganan</h1>
+        <p className="mt-2 text-gray-500">Terjadi kesalahan saat memuat data langganan Anda</p>
+        <Button className="mt-6" onClick={() => { setIsError(false); refreshSubscriptions(); }}>Coba Lagi</Button>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8">
+      <ToastContainer toasts={toasts} />
+      <ConfirmDialog
+        isOpen={cancelConfirm.open}
+        onConfirm={handleCancelConfirm}
+        onCancel={() => setCancelConfirm({ open: false, id: null })}
+        title="Batalkan Langganan"
+        message="Yakin ingin membatalkan langganan ini? Anda tidak dapat mengembalikan langganan yang sudah dibatalkan."
+        confirmLabel="Ya, Batalkan"
+        variant="danger"
+      />
+
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-gray-900">Langgananku</h1>
         <p className="mt-1 text-gray-500">
@@ -164,7 +191,6 @@ export default function SubscriptionsPage() {
         </div>
       ) : (
         <div className="space-y-8">
-          {/* Active Subscriptions */}
           {activeSubscriptions.length > 0 && (
             <div>
               <h2 className="mb-4 text-lg font-semibold text-gray-900">
@@ -177,14 +203,13 @@ export default function SubscriptionsPage() {
                     subscription={sub}
                     onPause={handlePause}
                     onResume={handleResume}
-                    onCancel={handleCancel}
+                    onCancel={(id) => setCancelConfirm({ open: true, id })}
                   />
                 ))}
               </div>
             </div>
           )}
 
-          {/* Paused Subscriptions */}
           {pausedSubscriptions.length > 0 && (
             <div>
               <h2 className="mb-4 text-lg font-semibold text-gray-900">
@@ -197,14 +222,13 @@ export default function SubscriptionsPage() {
                     subscription={sub}
                     onPause={handlePause}
                     onResume={handleResume}
-                    onCancel={handleCancel}
+                    onCancel={(id) => setCancelConfirm({ open: true, id })}
                   />
                 ))}
               </div>
             </div>
           )}
 
-          {/* Cancelled Subscriptions */}
           {cancelledSubscriptions.length > 0 && (
             <div>
               <h2 className="mb-4 text-lg font-semibold text-gray-900">
@@ -217,7 +241,7 @@ export default function SubscriptionsPage() {
                     subscription={sub}
                     onPause={handlePause}
                     onResume={handleResume}
-                    onCancel={handleCancel}
+                    onCancel={(id) => setCancelConfirm({ open: true, id })}
                   />
                 ))}
               </div>
@@ -229,7 +253,7 @@ export default function SubscriptionsPage() {
   );
 }
 
-function SubscriptionCard({
+const SubscriptionCard = memo(function SubscriptionCard({
   subscription,
   onPause,
   onResume,
@@ -277,7 +301,7 @@ function SubscriptionCard({
               {subscription.product.category.name}
             </p>
             <div className="mt-1 flex items-center gap-2">
-              <Badge variant={status.color as any}>{status.label}</Badge>
+              <Badge variant={status.color as 'success' | 'warning' | 'danger'}>{status.label}</Badge>
               <span className="text-sm text-gray-500">
                 {FREQUENCY_LABELS[subscription.frequency] || subscription.frequency}
               </span>
@@ -285,7 +309,6 @@ function SubscriptionCard({
           </div>
         </div>
 
-        {/* Next Delivery */}
         {subscription.status === 'ACTIVE' && subscription.nextDelivery && (
           <div className="mt-4 rounded-lg bg-gray-50 p-3 text-sm">
             <p className="text-gray-600">
@@ -302,7 +325,6 @@ function SubscriptionCard({
           </div>
         )}
 
-        {/* Actions */}
         <div className="mt-4 flex gap-2">
           {subscription.status === 'ACTIVE' && (
             <>
@@ -346,4 +368,4 @@ function SubscriptionCard({
       </CardContent>
     </Card>
   );
-}
+});

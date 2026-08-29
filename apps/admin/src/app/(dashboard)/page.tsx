@@ -1,8 +1,10 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { useToast, ToastContainer } from '@/components/ui/Toast';
 
 interface DashboardStats {
   totalOrders: number;
@@ -31,6 +33,7 @@ const STATUS_LABELS: Record<string, { label: string; color: string }> = {
 };
 
 export default function AdminDashboard() {
+  const { toasts, error: showError } = useToast();
   const [stats, setStats] = useState<DashboardStats>({
     totalOrders: 0,
     totalRevenue: 0,
@@ -53,10 +56,10 @@ export default function AdminDashboard() {
           signal: controller.signal,
         });
 
-        const orders = ordersRes.data.data.orders;
+        const orders: RecentOrder[] = ordersRes.data.data.orders;
         const totalRevenue = orders
-          .filter((o: any) => o.status === 'PAID' || o.status === 'DELIVERED')
-          .reduce((sum: number, o: any) => sum + Number(o.totalAmount), 0);
+          .filter((o) => o.status === 'PAID' || o.status === 'DELIVERED')
+          .reduce((sum, o) => sum + Number(o.totalAmount), 0);
 
         setStats({
           totalOrders: ordersRes.data.data.pagination.total,
@@ -66,9 +69,9 @@ export default function AdminDashboard() {
         });
 
         setRecentOrders(orders.slice(0, 5));
-      } catch (error: any) {
-        if (error?.name !== 'AbortError') {
-          console.error('Gagal memuat dashboard:', error);
+      } catch (err: any) {
+        if (err?.name !== 'AbortError') {
+          console.error('Gagal memuat dashboard:', err);
         }
       } finally {
         setIsLoading(false);
@@ -80,38 +83,21 @@ export default function AdminDashboard() {
     return () => controller.abort();
   }, []);
 
-  const statCards = [
-    {
-      title: 'Total Pesanan',
-      value: stats.totalOrders,
-      icon: '📦',
-      color: 'bg-blue-500',
-    },
-    {
-      title: 'Total Pendapatan',
-      value: formatCurrency(stats.totalRevenue),
-      icon: '💰',
-      color: 'bg-green-500',
-    },
-    {
-      title: 'Total Produk',
-      value: stats.totalProducts,
-      icon: '🏷️',
-      color: 'bg-purple-500',
-    },
-    {
-      title: 'Total Pengguna',
-      value: stats.totalUsers,
-      icon: '👥',
-      color: 'bg-orange-500',
-    },
-  ];
+  const statCards = useMemo(
+    () => [
+      { title: 'Total Pesanan', value: stats.totalOrders, icon: '📦', color: 'bg-blue-500' },
+      { title: 'Total Pendapatan', value: formatCurrency(stats.totalRevenue), icon: '💰', color: 'bg-green-500' },
+      { title: 'Total Produk', value: stats.totalProducts, icon: '🏷️', color: 'bg-purple-500' },
+      { title: 'Total Pengguna', value: stats.totalUsers, icon: '👥', color: 'bg-orange-500' },
+    ],
+    [stats]
+  );
 
   return (
     <div className="space-y-6">
+      <ToastContainer toasts={toasts} />
       <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
 
-      {/* Stats Cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {statCards.map((stat) => (
           <div
@@ -135,7 +121,6 @@ export default function AdminDashboard() {
         ))}
       </div>
 
-      {/* Recent Orders */}
       <div className="rounded-xl bg-white p-6 shadow-sm">
         <h2 className="mb-4 text-lg font-semibold text-gray-900">
           Pesanan Terbaru
