@@ -6,6 +6,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { api } from '@/lib/api';
+import { Input } from '@/components/ui/Input';
 
 const loginSchema = z.object({
   email: z.string().email('Email tidak valid'),
@@ -71,32 +72,24 @@ export default function AdminLoginPage() {
             <label className="mb-1.5 block text-sm font-medium text-gray-700">
               Email
             </label>
-            <input
+            <Input
               type="email"
               {...register('email')}
-              className="h-10 w-full rounded-lg border border-gray-300 px-3 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
               placeholder="admin@oblintz.com"
+              error={errors.email?.message}
             />
-            {errors.email && (
-              <p className="mt-1 text-xs text-red-500">{errors.email.message}</p>
-            )}
           </div>
 
           <div>
             <label className="mb-1.5 block text-sm font-medium text-gray-700">
               Password
             </label>
-            <input
+            <Input
               type="password"
               {...register('password')}
-              className="h-10 w-full rounded-lg border border-gray-300 px-3 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
               placeholder="••••••••"
+              error={errors.password?.message}
             />
-            {errors.password && (
-              <p className="mt-1 text-xs text-red-500">
-                {errors.password.message}
-              </p>
-            )}
           </div>
 
           <button
