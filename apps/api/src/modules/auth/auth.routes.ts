@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import bcrypt from 'bcrypt';
+import crypto from 'crypto';
 import { nanoid } from 'nanoid';
 import prisma from '../../config/database';
 import { redis } from '../../config/redis';
@@ -18,6 +19,17 @@ import {
   otpEmail,
 } from '../../lib/email';
 
+// Rate limit keys
+const RATE_LIMIT_WINDOW = 60; // 1 minute
+
+async function checkRateLimit(key: string, maxRequests: number): Promise<boolean> {
+  const current = await redis.incr(key);
+  if (current === 1) {
+    await redis.expire(key, RATE_LIMIT_WINDOW);
+  }
+  return current > maxRequests;
+}
+
 export async function authRoutes(app: FastifyInstance) {
   // ==================== REGISTER ====================
   app.post('/register', {
@@ -35,6 +47,15 @@ export async function authRoutes(app: FastifyInstance) {
     },
   }, async (request, reply) => {
     try {
+      // Rate limit: 5 requests per minute per IP
+      const clientIp = request.ip;
+      if (await checkRateLimit(`rl:register:${clientIp}`, 5)) {
+        return reply.status(429).send({
+          success: false,
+          error: { code: 'RATE_LIMIT', message: 'Terlalu banyak percobaan registrasi, coba lagi nanti' },
+        });
+      }
+
       const input = registerSchema.parse(request.body);
 
       const existingUser = await prisma.user.findUnique({
@@ -114,6 +135,15 @@ export async function authRoutes(app: FastifyInstance) {
     },
   }, async (request, reply) => {
     try {
+      // Rate limit: 10 requests per minute per IP
+      const clientIp = request.ip;
+      if (await checkRateLimit(`rl:login:${clientIp}`, 10)) {
+        return reply.status(429).send({
+          success: false,
+          error: { code: 'RATE_LIMIT', message: 'Terlalu banyak percobaan login, coba lagi nanti' },
+        });
+      }
+
       const input = loginSchema.parse(request.body);
 
       const user = await prisma.user.findUnique({
@@ -286,6 +316,15 @@ export async function authRoutes(app: FastifyInstance) {
     },
   }, async (request, reply) => {
     try {
+      // Rate limit: 5 requests per minute per IP
+      const clientIp = request.ip;
+      if (await checkRateLimit(`rl:forgot:${clientIp}`, 5)) {
+        return reply.status(429).send({
+          success: false,
+          error: { code: 'RATE_LIMIT', message: 'Terlalu banyak permintaan, coba lagi nanti' },
+        });
+      }
+
       const input = forgotPasswordSchema.parse(request.body);
 
       const user = await prisma.user.findUnique({
@@ -304,8 +343,8 @@ export async function authRoutes(app: FastifyInstance) {
       const resetToken = nanoid(64);
       const tokenHash = await bcrypt.hash(resetToken, 12);
 
-      // Simpan token hash di Redis dengan TTL 1 jam
-      await redis.set(`reset:${user.id}:${resetToken}`, tokenHash, 'EX', 60 * 60);
+      // Simpan token hash di Redis dengan TTL 1 jam (single key per user)
+      await redis.set(`reset:${user.id}`, tokenHash, 'EX', 60 * 60);
 
       // Kirim email
       const resetUrl = `${process.env.APP_URL || 'http://localhost:3000'}/reset-password?token=${resetToken}&userId=${user.id}`;
@@ -355,16 +394,8 @@ export async function authRoutes(app: FastifyInstance) {
         });
       }
 
-      // Cari token di Redis
-      const keys = await redis.keys(`reset:${userId}:*`);
-      if (keys.length === 0) {
-        return reply.status(400).send({
-          success: false,
-          error: { code: 'INVALID_TOKEN', message: 'Token tidak valid atau kedaluwarsa' },
-        });
-      }
-
-      const storedHash = await redis.get(keys[0]);
+      // Cari token di Redis (single key per user)
+      const storedHash = await redis.get(`reset:${userId}`);
       if (!storedHash) {
         return reply.status(400).send({
           success: false,
@@ -388,7 +419,7 @@ export async function authRoutes(app: FastifyInstance) {
       });
 
       // Hapus token dari Redis
-      await redis.del(...keys);
+      await redis.del(`reset:${userId}`);
 
       return reply.status(200).send({
         success: true,
@@ -418,6 +449,15 @@ export async function authRoutes(app: FastifyInstance) {
     },
   }, async (request, reply) => {
     try {
+      // Rate limit: 3 requests per minute per IP
+      const clientIp = request.ip;
+      if (await checkRateLimit(`rl:otp:${clientIp}`, 3)) {
+        return reply.status(429).send({
+          success: false,
+          error: { code: 'RATE_LIMIT', message: 'Terlalu banyak permintaan OTP, coba lagi nanti' },
+        });
+      }
+
       const { email } = request.body as { email: string };
 
       const user = await prisma.user.findUnique({ where: { email } });
@@ -428,11 +468,12 @@ export async function authRoutes(app: FastifyInstance) {
         });
       }
 
-      // Generate 6-digit OTP
-      const otp = Math.floor(100000 + Math.random() * 900000).toString();
+      // Generate 6-digit OTP (cryptographically secure)
+      const otp = crypto.randomInt(100000, 999999).toString();
 
-      // Simpan di Redis dengan TTL 5 menit
-      await redis.set(`otp:${email}`, otp, 'EX', 5 * 60);
+      // Hash OTP sebelum simpan di Redis
+      const otpHash = await bcrypt.hash(otp, 10);
+      await redis.set(`otp:${email}`, otpHash, 'EX', 5 * 60);
 
       // Kirim email
       const emailContent = otpEmail(user.name, otp);
@@ -469,9 +510,17 @@ export async function authRoutes(app: FastifyInstance) {
     try {
       const input = verifyOtpSchema.parse(request.body);
 
-      const storedOtp = await redis.get(`otp:${input.email}`);
+      const storedOtpHash = await redis.get(`otp:${input.email}`);
 
-      if (!storedOtp || storedOtp !== input.otp) {
+      if (!storedOtpHash) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'INVALID_OTP', message: 'Kode OTP tidak valid atau kedaluwarsa' },
+        });
+      }
+
+      const isValidOtp = await bcrypt.compare(input.otp, storedOtpHash);
+      if (!isValidOtp) {
         return reply.status(400).send({
           success: false,
           error: { code: 'INVALID_OTP', message: 'Kode OTP tidak valid atau kedaluwarsa' },

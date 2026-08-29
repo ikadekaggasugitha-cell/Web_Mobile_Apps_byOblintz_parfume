@@ -5,6 +5,7 @@ import { requireAuth } from '../../middleware/auth';
 import { addToCartSchema, updateCartItemSchema, applyPromoSchema } from './cart.schema';
 
 const CART_TTL = 30 * 24 * 60 * 60; // 30 hari
+const LOCK_TTL = 5000; // 5 seconds lock
 
 interface CartItem {
   productId: string;
@@ -20,6 +21,15 @@ async function getCart(userId: string): Promise<CartItem[]> {
 
 async function saveCart(userId: string, items: CartItem[]): Promise<void> {
   await redis.set(`cart:${userId}`, JSON.stringify(items), 'EX', CART_TTL);
+}
+
+async function acquireLock(key: string): Promise<boolean> {
+  const result = await redis.set(`lock:${key}`, '1', 'PX', LOCK_TTL, 'NX');
+  return result === 'OK';
+}
+
+async function releaseLock(key: string): Promise<void> {
+  await redis.del(`lock:${key}`);
 }
 
 export async function cartRoutes(app: FastifyInstance) {
@@ -108,41 +118,54 @@ export async function cartRoutes(app: FastifyInstance) {
         });
       }
 
-      const cart = await getCart(request.userId!);
-      const existingIndex = cart.findIndex((i) => i.productId === input.productId);
-
-      if (existingIndex >= 0) {
-        // Update quantity
-        const newQty = cart[existingIndex].quantity + input.quantity;
-        if (newQty > 10) {
-          return reply.status(400).send({
-            success: false,
-            error: { code: 'MAX_QUANTITY', message: 'Maksimal 10 item per produk' },
-          });
-        }
-        if (newQty > product.stock) {
-          return reply.status(400).send({
-            success: false,
-            error: { code: 'INSUFFICIENT_STOCK', message: 'Stok tidak mencukupi' },
-          });
-        }
-        cart[existingIndex].quantity = newQty;
-        cart[existingIndex].giftWrap = input.giftWrap || cart[existingIndex].giftWrap;
-      } else {
-        // Tambah baru
-        cart.push({
-          productId: input.productId,
-          quantity: input.quantity,
-          giftWrap: input.giftWrap || false,
-          addedAt: new Date().toISOString(),
+      // Acquire lock untuk prevent concurrent modification
+      const lockKey = `cart:${request.userId}`;
+      if (!await acquireLock(lockKey)) {
+        return reply.status(429).send({
+          success: false,
+          error: { code: 'RATE_LIMIT', message: 'Sedang memproses keranjang, coba lagi' },
         });
       }
 
-      await saveCart(request.userId!, cart);
+      try {
+        const cart = await getCart(request.userId!);
+        const existingIndex = cart.findIndex((i) => i.productId === input.productId);
+
+        if (existingIndex >= 0) {
+          // Update quantity
+          const newQty = cart[existingIndex].quantity + input.quantity;
+          if (newQty > 10) {
+            return reply.status(400).send({
+              success: false,
+              error: { code: 'MAX_QUANTITY', message: 'Maksimal 10 item per produk' },
+            });
+          }
+          if (newQty > product.stock) {
+            return reply.status(400).send({
+              success: false,
+              error: { code: 'INSUFFICIENT_STOCK', message: 'Stok tidak mencukupi' },
+            });
+          }
+          cart[existingIndex].quantity = newQty;
+          cart[existingIndex].giftWrap = input.giftWrap || cart[existingIndex].giftWrap;
+        } else {
+          // Tambah baru
+          cart.push({
+            productId: input.productId,
+            quantity: input.quantity,
+            giftWrap: input.giftWrap || false,
+            addedAt: new Date().toISOString(),
+          });
+        }
+
+        await saveCart(request.userId!, cart);
+      } finally {
+        await releaseLock(lockKey);
+      }
 
       return reply.status(200).send({
         success: true,
-        data: { message: 'Produk ditambahkan ke keranjang', totalItems: cart.length },
+        data: { message: 'Produk ditambahkan ke keranjang', totalItems: 0 },
       });
     } catch (error) {
       if (error instanceof Error) {
@@ -181,22 +204,35 @@ export async function cartRoutes(app: FastifyInstance) {
         });
       }
 
-      const cart = await getCart(request.userId!);
-      const index = cart.findIndex((i) => i.productId === productId);
-
-      if (index < 0) {
-        return reply.status(404).send({
+      // Acquire lock
+      const lockKey = `cart:${request.userId}`;
+      if (!await acquireLock(lockKey)) {
+        return reply.status(429).send({
           success: false,
-          error: { code: 'NOT_FOUND', message: 'Item tidak ada di keranjang' },
+          error: { code: 'RATE_LIMIT', message: 'Sedang memproses keranjang, coba lagi' },
         });
       }
 
-      cart[index].quantity = input.quantity;
-      if (input.giftWrap !== undefined) {
-        cart[index].giftWrap = input.giftWrap;
-      }
+      try {
+        const cart = await getCart(request.userId!);
+        const index = cart.findIndex((i) => i.productId === productId);
 
-      await saveCart(request.userId!, cart);
+        if (index < 0) {
+          return reply.status(404).send({
+            success: false,
+            error: { code: 'NOT_FOUND', message: 'Item tidak ada di keranjang' },
+          });
+        }
+
+        cart[index].quantity = input.quantity;
+        if (input.giftWrap !== undefined) {
+          cart[index].giftWrap = input.giftWrap;
+        }
+
+        await saveCart(request.userId!, cart);
+      } finally {
+        await releaseLock(lockKey);
+      }
 
       return reply.status(200).send({
         success: true,
@@ -219,18 +255,31 @@ export async function cartRoutes(app: FastifyInstance) {
   }, async (request, reply) => {
     const { productId } = request.params as { productId: string };
 
-    const cart = await getCart(request.userId!);
-    const index = cart.findIndex((i) => i.productId === productId);
-
-    if (index < 0) {
-      return reply.status(404).send({
+    // Acquire lock
+    const lockKey = `cart:${request.userId}`;
+    if (!await acquireLock(lockKey)) {
+      return reply.status(429).send({
         success: false,
-        error: { code: 'NOT_FOUND', message: 'Item tidak ada di keranjang' },
+        error: { code: 'RATE_LIMIT', message: 'Sedang memproses keranjang, coba lagi' },
       });
     }
 
-    cart.splice(index, 1);
-    await saveCart(request.userId!, cart);
+    try {
+      const cart = await getCart(request.userId!);
+      const index = cart.findIndex((i) => i.productId === productId);
+
+      if (index < 0) {
+        return reply.status(404).send({
+          success: false,
+          error: { code: 'NOT_FOUND', message: 'Item tidak ada di keranjang' },
+        });
+      }
+
+      cart.splice(index, 1);
+      await saveCart(request.userId!, cart);
+    } finally {
+      await releaseLock(lockKey);
+    }
 
     return reply.status(200).send({
       success: true,

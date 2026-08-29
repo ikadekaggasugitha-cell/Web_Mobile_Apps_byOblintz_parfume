@@ -132,6 +132,8 @@ model Product {
 
   @@index([categoryId])
   @@index([status])
+  @@index([categoryId, status])
+  @@index([status, createdAt])
   @@map("products")
 }
 
@@ -182,6 +184,9 @@ model Order {
 
   @@index([userId])
   @@index([status])
+  @@index([userId, status])
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
   @@map("orders")
 }
 
@@ -197,6 +202,8 @@ model OrderItem {
   order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
   product Product @relation(fields: [productId], references: [id])
 
+  @@index([orderId])
+  @@index([productId])
   @@map("order_items")
 }
 
@@ -236,6 +243,7 @@ model Review {
 
   @@index([productId])
   @@index([userId])
+  @@index([productId, status])
   @@map("reviews")
 }
 
@@ -342,6 +350,7 @@ model Address {
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@index([userId])
   @@map("addresses")
 }
 
@@ -362,6 +371,8 @@ model PromoCode {
 
   orders Order[]
 
+  @@index([status])
+  @@index([startDate, endDate])
   @@map("promo_codes")
 }
 
@@ -393,6 +404,8 @@ model AuditLog {
 
   adminUser AdminUser? @relation(fields: [adminUserId], references: [id])
 
+  @@index([adminUserId, createdAt])
+  @@index([module, action])
   @@map("audit_logs")
 }
 
@@ -411,6 +424,7 @@ model Banner {
   endDate   DateTime? @map("end_date")
   createdAt DateTime  @default(now()) @map("created_at")
 
+  @@index([isActive, sortOrder])
   @@map("banners")
 }
 
@@ -429,5 +443,6 @@ model Article {
   createdAt   DateTime  @default(now()) @map("created_at")
   updatedAt   DateTime  @updatedAt @map("updated_at")
 
+  @@index([status, createdAt])
   @@map("articles")
 }

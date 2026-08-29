@@ -155,16 +155,38 @@ async function bootstrap() {
   }
 }
 
-// Graceful shutdown
+// Graceful shutdown with timeout
 const signals = ['SIGINT', 'SIGTERM'];
 signals.forEach((signal) => {
   process.on(signal, async () => {
-    console.log(`\n📴 Received ${signal}, shutting down...`);
-    await server.close();
-    await prisma.$disconnect();
-    redis.disconnect();
+    server.log.info(`Received ${signal}, shutting down...`);
+    const forceExit = setTimeout(() => {
+      server.log.error('Forced shutdown after timeout');
+      process.exit(1);
+    }, 10000);
+    try {
+      await server.close();
+      await prisma.$disconnect();
+      redis.disconnect();
+    } catch (err) {
+      server.log.error(err, 'Error during shutdown');
+    }
+    clearTimeout(forceExit);
     process.exit(0);
   });
 });
 
-bootstrap();
+// Handle uncaught errors
+process.on('uncaughtException', (error) => {
+  server.log.error(error, 'Uncaught Exception');
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason) => {
+  server.log.error(reason as Error, 'Unhandled Rejection');
+});
+
+bootstrap().catch((err) => {
+  console.error('Failed to start server:', err);
+  process.exit(1);
+});

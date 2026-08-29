@@ -117,10 +117,23 @@ export async function getMidtransStatus(
   return data;
 }
 
-export function verifyMidtransSignature(body: any): boolean {
-  if (!config.midtrans.serverKey) return true; // Skip in dev without keys
+export function verifyMidtransSignature(body: Record<string, unknown>): boolean {
+  if (!config.midtrans.serverKey) {
+    console.warn('[SECURITY] Midtrans signature verification skipped: MIDTRANS_SERVER_KEY not configured');
+    return false;
+  }
 
-  const { order_id, status_code, gross_amount, signature_key } = body;
+  const { order_id, status_code, gross_amount, signature_key } = body as {
+    order_id: string;
+    status_code: string;
+    gross_amount: string;
+    signature_key: string;
+  };
+
+  if (!order_id || !status_code || !gross_amount || !signature_key) {
+    return false;
+  }
+
   const serverKey = config.midtrans.serverKey;
 
   const expectedSignature = crypto
@@ -128,5 +141,12 @@ export function verifyMidtransSignature(body: any): boolean {
     .update(`${order_id}${status_code}${gross_amount}${serverKey}`)
     .digest('hex');
 
-  return signature_key === expectedSignature;
+  try {
+    return crypto.timingSafeEqual(
+      Buffer.from(signature_key, 'hex'),
+      Buffer.from(expectedSignature, 'hex')
+    );
+  } catch {
+    return false;
+  }
 }
