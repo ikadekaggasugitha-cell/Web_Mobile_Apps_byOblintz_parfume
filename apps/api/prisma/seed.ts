@@ -15,7 +15,7 @@ async function main() {
       email: 'admin@oblintz.com',
       passwordHash: adminPasswordHash,
       name: 'Super Admin',
-      role: 'SUPER_ADMIN',
+      role: 'SUPER_ADMIN' as any, // AdminRole enum
       permissions: {
         products: ['create', 'read', 'update', 'delete'],
         orders: ['read', 'update'],
