@@ -49,24 +49,32 @@ export default function ProductDetailPage() {
   const [isAddingToCart, setIsAddingToCart] = useState(false);
 
   useEffect(() => {
+    const controller = new AbortController();
+
     const fetchProduct = async () => {
       try {
-        const response = await api.get(`/api/products/${params.slug}`);
+        const response = await api.get(`/api/products/${params.slug}`, {
+          signal: controller.signal,
+        });
         setProduct(response.data.data);
 
-        // Fetch related products
         const relatedResponse = await api.get(
-          `/api/products/${params.slug}/related`
+          `/api/products/${params.slug}/related`,
+          { signal: controller.signal }
         );
         setRelated(relatedResponse.data.data);
-      } catch (error) {
-        console.error('Gagal memuat produk:', error);
+      } catch (error: any) {
+        if (error?.name !== 'AbortError') {
+          console.error('Gagal memuat produk:', error);
+        }
       } finally {
         setIsLoading(false);
       }
     };
 
     fetchProduct();
+
+    return () => controller.abort();
   }, [params.slug]);
 
   const handleAddToCart = async () => {

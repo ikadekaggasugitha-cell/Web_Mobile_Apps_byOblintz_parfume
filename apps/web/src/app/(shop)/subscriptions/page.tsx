@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import Image from 'next/image';
 import api from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 import { Button } from '@/components/ui/Button';
@@ -42,7 +43,7 @@ export default function SubscriptionsPage() {
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  const fetchSubscriptions = async () => {
+  const refreshSubscriptions = async () => {
     const token = localStorage.getItem('accessToken');
     if (!token) {
       router.push('/login');
@@ -56,13 +57,37 @@ export default function SubscriptionsPage() {
       setSubscriptions(response.data.data);
     } catch (error) {
       console.error('Gagal memuat langganan:', error);
-    } finally {
-      setIsLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchSubscriptions();
+    const controller = new AbortController();
+
+    const fetchData = async () => {
+      const token = localStorage.getItem('accessToken');
+      if (!token) {
+        router.push('/login');
+        return;
+      }
+
+      try {
+        const response = await api.get('/api/subscriptions', {
+          headers: { Authorization: `Bearer ${token}` },
+          signal: controller.signal,
+        });
+        setSubscriptions(response.data.data);
+      } catch (error: any) {
+        if (error?.name !== 'AbortError') {
+          console.error('Gagal memuat langganan:', error);
+        }
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchData();
+
+    return () => controller.abort();
   }, []);
 
   const handlePause = async (id: string) => {
@@ -73,7 +98,7 @@ export default function SubscriptionsPage() {
         {},
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      fetchSubscriptions();
+      refreshSubscriptions();
     } catch (error) {
       console.error('Gagal menjeda:', error);
     }
@@ -87,7 +112,7 @@ export default function SubscriptionsPage() {
         {},
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      fetchSubscriptions();
+      refreshSubscriptions();
     } catch (error) {
       console.error('Gagal melanjutkan:', error);
     }
@@ -103,7 +128,7 @@ export default function SubscriptionsPage() {
         {},
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      fetchSubscriptions();
+      refreshSubscriptions();
     } catch (error) {
       console.error('Gagal membatalkan:', error);
     }
@@ -226,10 +251,13 @@ function SubscriptionCard({
         <div className="flex gap-4">
           <div className="h-20 w-20 flex-shrink-0 overflow-hidden rounded-lg bg-gray-100">
             {subscription.product.images?.[0] ? (
-              <img
+              <Image
                 src={subscription.product.images[0]}
                 alt={subscription.product.name}
+                width={80}
+                height={80}
                 className="h-full w-full object-cover"
+                unoptimized
               />
             ) : (
               <div className="flex h-full items-center justify-center text-gray-400">

@@ -44,6 +44,8 @@ export default function CheckoutPage() {
   const shippingMethod = watch('shippingMethod');
 
   useEffect(() => {
+    const controller = new AbortController();
+
     const fetchCart = async () => {
       const token = localStorage.getItem('accessToken');
       if (!token) {
@@ -54,16 +56,21 @@ export default function CheckoutPage() {
       try {
         const response = await api.get('/api/cart', {
           headers: { Authorization: `Bearer ${token}` },
+          signal: controller.signal,
         });
         setCart(response.data.data);
-      } catch (error) {
-        console.error('Gagal memuat keranjang:', error);
+      } catch (error: any) {
+        if (error?.name !== 'AbortError') {
+          console.error('Gagal memuat keranjang:', error);
+        }
       } finally {
         setIsLoading(false);
       }
     };
 
     fetchCart();
+
+    return () => controller.abort();
   }, []);
 
   const onSubmit = async (data: CheckoutInput) => {

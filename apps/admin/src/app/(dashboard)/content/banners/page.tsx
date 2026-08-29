@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Image from 'next/image';
 import { api } from '@/lib/api';
 
 interface Banner {
@@ -36,7 +37,31 @@ export default function AdminBannersPage() {
     }
   };
 
-  useEffect(() => { fetchBanners(); }, []);
+  useEffect(() => {
+    const controller = new AbortController();
+
+    const fetchData = async () => {
+      setIsLoading(true);
+      const token = localStorage.getItem('adminAccessToken');
+      try {
+        const response = await api.get('/api/banners/admin/all', {
+          headers: { Authorization: `Bearer ${token}` },
+          signal: controller.signal,
+        });
+        setBanners(response.data.data);
+      } catch (error: any) {
+        if (error?.name !== 'AbortError') {
+          console.error('Gagal memuat banner:', error);
+        }
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchData();
+
+    return () => controller.abort();
+  }, []);
 
   const handleSave = async () => {
     const token = localStorage.getItem('adminAccessToken');
@@ -106,7 +131,14 @@ export default function AdminBannersPage() {
               {banners.map((banner) => (
                 <tr key={banner.id} className="border-b border-gray-100 hover:bg-gray-50">
                   <td className="p-4">
-                    <img src={banner.imageUrl} alt={banner.title} className="h-12 w-24 rounded object-cover" />
+                    <Image
+                      src={banner.imageUrl}
+                      alt={banner.title}
+                      width={96}
+                      height={48}
+                      className="h-12 w-24 rounded object-cover"
+                      unoptimized
+                    />
                   </td>
                   <td className="p-4 font-medium text-gray-900">{banner.title}</td>
                   <td className="p-4 text-gray-600">{banner.position}</td>

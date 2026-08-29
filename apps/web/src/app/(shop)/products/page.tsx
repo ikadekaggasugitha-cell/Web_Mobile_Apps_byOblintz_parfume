@@ -60,7 +60,35 @@ export default function ProductsPage() {
   };
 
   useEffect(() => {
-    fetchProducts();
+    const controller = new AbortController();
+
+    const fetchData = async (page = 1) => {
+      setIsLoading(true);
+      try {
+        const params = new URLSearchParams({
+          page: page.toString(),
+          limit: '12',
+          sort,
+        });
+        if (search) params.set('search', search);
+
+        const response = await api.get(`/api/products?${params}`, {
+          signal: controller.signal,
+        });
+        setProducts(response.data.data.products);
+        setPagination(response.data.data.pagination);
+      } catch (error: any) {
+        if (error?.name !== 'AbortError') {
+          console.error('Gagal memuat produk:', error);
+        }
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchData();
+
+    return () => controller.abort();
   }, [sort]);
 
   const handleSearch = (e: React.FormEvent) => {

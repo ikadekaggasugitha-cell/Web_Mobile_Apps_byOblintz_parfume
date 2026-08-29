@@ -43,7 +43,7 @@ export default function CartPage() {
   const [promoDiscount, setPromoDiscount] = useState(0);
   const [isApplyingPromo, setIsApplyingPromo] = useState(false);
 
-  const fetchCart = async () => {
+  const refreshCart = async () => {
     const token = localStorage.getItem('accessToken');
     if (!token) {
       router.push('/login');
@@ -57,13 +57,37 @@ export default function CartPage() {
       setCart(response.data.data);
     } catch (error) {
       console.error('Gagal memuat keranjang:', error);
-    } finally {
-      setIsLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchCart();
+    const controller = new AbortController();
+
+    const fetchData = async () => {
+      const token = localStorage.getItem('accessToken');
+      if (!token) {
+        router.push('/login');
+        return;
+      }
+
+      try {
+        const response = await api.get('/api/cart', {
+          headers: { Authorization: `Bearer ${token}` },
+          signal: controller.signal,
+        });
+        setCart(response.data.data);
+      } catch (error: any) {
+        if (error?.name !== 'AbortError') {
+          console.error('Gagal memuat keranjang:', error);
+        }
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchData();
+
+    return () => controller.abort();
   }, []);
 
   const updateQuantity = async (productId: string, quantity: number) => {
@@ -74,7 +98,7 @@ export default function CartPage() {
         { quantity },
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      fetchCart();
+      refreshCart();
     } catch (error) {
       console.error('Gagal update:', error);
     }
@@ -90,7 +114,7 @@ export default function CartPage() {
         { quantity: item.quantity, giftWrap },
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      fetchCart();
+      refreshCart();
     } catch (error) {
       console.error('Gagal update gift wrap:', error);
     }
@@ -102,7 +126,7 @@ export default function CartPage() {
       await api.delete(`/api/cart/items/${productId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      fetchCart();
+      refreshCart();
     } catch (error) {
       console.error('Gagal hapus:', error);
     }

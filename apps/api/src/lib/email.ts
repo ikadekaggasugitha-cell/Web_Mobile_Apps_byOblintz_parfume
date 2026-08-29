@@ -1,5 +1,6 @@
 import sgMail from '@sendgrid/mail';
 import { config } from '../config';
+import { escapeHtml } from '../utils/escape-html';
 
 sgMail.setApiKey(config.sendgrid.apiKey);
 
@@ -37,6 +38,7 @@ export async function sendEmail({ to, subject, html }: SendEmailOptions): Promis
 // ==================== TEMPLATES ====================
 
 export function welcomeEmail(name: string): { subject: string; html: string } {
+  const safeName = escapeHtml(name);
   return {
     subject: 'Selamat Datang di OBLINTZ!',
     html: `
@@ -44,7 +46,7 @@ export function welcomeEmail(name: string): { subject: string; html: string } {
       <html>
       <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
         <h1 style="color: #6B46C1;">Selamat Datang di OBLINTZ! 🌸</h1>
-        <p>Halo <strong>${name}</strong>,</p>
+        <p>Halo <strong>${safeName}</strong>,</p>
         <p>Terima kasih telah bergabung dengan OBLINTZ, platform parfum premium terbaik di Indonesia.</p>
         <p>Temukan parfum sempurna yang mencerminkan gaya Anda melalui katalog kami atau quiz rekomendasi.</p>
         <hr style="border: 1px solid #eee; margin: 20px 0;">
@@ -56,6 +58,8 @@ export function welcomeEmail(name: string): { subject: string; html: string } {
 }
 
 export function resetPasswordEmail(name: string, resetUrl: string): { subject: string; html: string } {
+  const safeName = escapeHtml(name);
+  const safeResetUrl = escapeHtml(resetUrl);
   return {
     subject: 'Reset Password OBLINTZ',
     html: `
@@ -63,10 +67,10 @@ export function resetPasswordEmail(name: string, resetUrl: string): { subject: s
       <html>
       <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
         <h1 style="color: #6B46C1;">Reset Password</h1>
-        <p>Halo <strong>${name}</strong>,</p>
+        <p>Halo <strong>${safeName}</strong>,</p>
         <p>Kami menerima permintaan untuk mereset password akun Anda.</p>
         <p style="margin: 30px 0;">
-          <a href="${resetUrl}" style="background-color: #6B46C1; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px;">
+          <a href="${safeResetUrl}" style="background-color: #6B46C1; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px;">
             Reset Password
           </a>
         </p>
@@ -81,6 +85,7 @@ export function resetPasswordEmail(name: string, resetUrl: string): { subject: s
 }
 
 export function otpEmail(name: string, otp: string): { subject: string; html: string } {
+  const safeName = escapeHtml(name);
   return {
     subject: 'Kode Verifikasi OBLINTZ',
     html: `
@@ -88,7 +93,7 @@ export function otpEmail(name: string, otp: string): { subject: string; html: st
       <html>
       <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
         <h1 style="color: #6B46C1;">Kode Verifikasi</h1>
-        <p>Halo <strong>${name}</strong>,</p>
+        <p>Halo <strong>${safeName}</strong>,</p>
         <p>Berikut adalah kode verifikasi Anda:</p>
         <div style="background-color: #f5f5f5; padding: 20px; text-align: center; margin: 20px 0; border-radius: 8px;">
           <span style="font-size: 32px; font-weight: bold; letter-spacing: 8px; color: #6B46C1;">${otp}</span>
@@ -109,11 +114,13 @@ export function orderConfirmationEmail(
   totalAmount: number,
   items: Array<{ name: string; quantity: number; price: number }>
 ): { subject: string; html: string } {
+  const safeName = escapeHtml(name);
+  const safeOrderNumber = escapeHtml(orderNumber);
   const itemsHtml = items
     .map(
       (item) => `
         <tr>
-          <td style="padding: 8px; border-bottom: 1px solid #eee;">${item.name}</td>
+          <td style="padding: 8px; border-bottom: 1px solid #eee;">${escapeHtml(item.name)}</td>
           <td style="padding: 8px; border-bottom: 1px solid #eee; text-align: center;">${item.quantity}</td>
           <td style="padding: 8px; border-bottom: 1px solid #eee; text-align: right;">Rp ${item.price.toLocaleString('id-ID')}</td>
         </tr>
@@ -122,14 +129,14 @@ export function orderConfirmationEmail(
     .join('');
 
   return {
-    subject: `Konfirmasi Pesanan ${orderNumber}`,
+    subject: `Konfirmasi Pesanan ${safeOrderNumber}`,
     html: `
       <!DOCTYPE html>
       <html>
       <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
         <h1 style="color: #6B46C1;">Pesanan Berhasil! 🎉</h1>
-        <p>Halo <strong>${name}</strong>,</p>
-        <p>Pesanan Anda dengan nomor <strong>${orderNumber}</strong> telah berhasil dibuat.</p>
+        <p>Halo <strong>${safeName}</strong>,</p>
+        <p>Pesanan Anda dengan nomor <strong>${safeOrderNumber}</strong> telah berhasil dibuat.</p>
         <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
           <thead>
             <tr style="background-color: #f5f5f5;">

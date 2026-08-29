@@ -41,7 +41,35 @@ export default function AdminArticlesPage() {
     }
   };
 
-  useEffect(() => { fetchArticles(); }, [statusFilter]);
+  useEffect(() => {
+    const controller = new AbortController();
+
+    const fetchData = async () => {
+      setIsLoading(true);
+      const token = localStorage.getItem('adminAccessToken');
+      try {
+        const params = new URLSearchParams();
+        if (search) params.set('search', search);
+        if (statusFilter) params.set('status', statusFilter);
+
+        const response = await api.get(`/api/articles/admin/all?${params}`, {
+          headers: { Authorization: `Bearer ${token}` },
+          signal: controller.signal,
+        });
+        setArticles(response.data.data.articles);
+      } catch (error: any) {
+        if (error?.name !== 'AbortError') {
+          console.error('Gagal memuat artikel:', error);
+        }
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchData();
+
+    return () => controller.abort();
+  }, [statusFilter]);
 
   const handleSave = async () => {
     const token = localStorage.getItem('adminAccessToken');

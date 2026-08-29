@@ -37,7 +37,7 @@ export default function CollectionsPage() {
   const [newName, setNewName] = useState('');
   const [isCreating, setIsCreating] = useState(false);
 
-  const fetchCollections = async () => {
+  const refreshCollections = async () => {
     const token = localStorage.getItem('accessToken');
     if (!token) {
       router.push('/login');
@@ -51,13 +51,37 @@ export default function CollectionsPage() {
       setCollections(response.data.data);
     } catch (error) {
       console.error('Gagal memuat koleksi:', error);
-    } finally {
-      setIsLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchCollections();
+    const controller = new AbortController();
+
+    const fetchData = async () => {
+      const token = localStorage.getItem('accessToken');
+      if (!token) {
+        router.push('/login');
+        return;
+      }
+
+      try {
+        const response = await api.get('/api/collections', {
+          headers: { Authorization: `Bearer ${token}` },
+          signal: controller.signal,
+        });
+        setCollections(response.data.data);
+      } catch (error: any) {
+        if (error?.name !== 'AbortError') {
+          console.error('Gagal memuat koleksi:', error);
+        }
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchData();
+
+    return () => controller.abort();
   }, []);
 
   const handleCreate = async () => {
@@ -73,7 +97,7 @@ export default function CollectionsPage() {
       );
       setShowCreateModal(false);
       setNewName('');
-      fetchCollections();
+      refreshCollections();
     } catch (error) {
       console.error('Gagal membuat koleksi:', error);
     } finally {
@@ -89,7 +113,7 @@ export default function CollectionsPage() {
       await api.delete(`/api/collections/${id}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      fetchCollections();
+      refreshCollections();
     } catch (error) {
       console.error('Gagal menghapus:', error);
     }

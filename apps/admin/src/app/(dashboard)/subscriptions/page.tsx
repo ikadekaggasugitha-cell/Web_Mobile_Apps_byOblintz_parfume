@@ -63,7 +63,38 @@ export default function AdminSubscriptionsPage() {
   };
 
   useEffect(() => {
-    fetchSubscriptions();
+    const controller = new AbortController();
+
+    const fetchData = async (page = 1) => {
+      setIsLoading(true);
+      const token = localStorage.getItem('adminAccessToken');
+
+      try {
+        const params = new URLSearchParams({
+          page: page.toString(),
+          limit: '20',
+        });
+        if (statusFilter) params.set('status', statusFilter);
+
+        const response = await api.get(`/api/subscriptions/admin/all?${params}`, {
+          headers: { Authorization: `Bearer ${token}` },
+          signal: controller.signal,
+        });
+
+        setSubscriptions(response.data.data.subscriptions);
+        setPagination(response.data.data.pagination);
+      } catch (error: any) {
+        if (error?.name !== 'AbortError') {
+          console.error('Gagal memuat langganan:', error);
+        }
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchData();
+
+    return () => controller.abort();
   }, [statusFilter]);
 
   return (

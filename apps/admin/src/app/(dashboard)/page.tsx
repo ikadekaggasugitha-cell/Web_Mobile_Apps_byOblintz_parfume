@@ -41,14 +41,16 @@ export default function AdminDashboard() {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
+    const controller = new AbortController();
+
     const fetchDashboard = async () => {
       const token = localStorage.getItem('adminAccessToken');
       if (!token) return;
 
       try {
-        // Fetch orders for stats
         const ordersRes = await api.get('/api/orders/admin/all?limit=100', {
           headers: { Authorization: `Bearer ${token}` },
+          signal: controller.signal,
         });
 
         const orders = ordersRes.data.data.orders;
@@ -64,14 +66,18 @@ export default function AdminDashboard() {
         });
 
         setRecentOrders(orders.slice(0, 5));
-      } catch (error) {
-        console.error('Gagal memuat dashboard:', error);
+      } catch (error: any) {
+        if (error?.name !== 'AbortError') {
+          console.error('Gagal memuat dashboard:', error);
+        }
       } finally {
         setIsLoading(false);
       }
     };
 
     fetchDashboard();
+
+    return () => controller.abort();
   }, []);
 
   const statCards = [

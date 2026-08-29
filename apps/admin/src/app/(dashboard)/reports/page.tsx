@@ -30,22 +30,35 @@ export default function AdminReportsPage() {
   const [salesPeriod, setSalesPeriod] = useState('daily');
 
   useEffect(() => {
+    const controller = new AbortController();
+
     const fetchData = async () => {
       const token = localStorage.getItem('adminAccessToken');
       try {
         const [dashRes, salesRes] = await Promise.all([
-          api.get('/api/reports/dashboard', { headers: { Authorization: `Bearer ${token}` } }),
-          api.get(`/api/reports/sales?period=${salesPeriod}`, { headers: { Authorization: `Bearer ${token}` } }),
+          api.get('/api/reports/dashboard', {
+            headers: { Authorization: `Bearer ${token}` },
+            signal: controller.signal,
+          }),
+          api.get(`/api/reports/sales?period=${salesPeriod}`, {
+            headers: { Authorization: `Bearer ${token}` },
+            signal: controller.signal,
+          }),
         ]);
         setDashboard(dashRes.data.data);
         setSales(salesRes.data.data);
-      } catch (error) {
-        console.error('Gagal memuat laporan:', error);
+      } catch (error: any) {
+        if (error?.name !== 'AbortError') {
+          console.error('Gagal memuat laporan:', error);
+        }
       } finally {
         setIsLoading(false);
       }
     };
+
     fetchData();
+
+    return () => controller.abort();
   }, [salesPeriod]);
 
   if (isLoading) return <div className="p-8 text-center text-gray-500">Memuat laporan...</div>;

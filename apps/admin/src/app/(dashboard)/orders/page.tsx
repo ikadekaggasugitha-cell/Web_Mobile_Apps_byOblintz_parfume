@@ -68,7 +68,39 @@ export default function AdminOrdersPage() {
   };
 
   useEffect(() => {
-    fetchOrders();
+    const controller = new AbortController();
+
+    const fetchData = async (page = 1) => {
+      setIsLoading(true);
+      const token = localStorage.getItem('adminAccessToken');
+
+      try {
+        const params = new URLSearchParams({
+          page: page.toString(),
+          limit: '20',
+        });
+        if (search) params.set('search', search);
+        if (statusFilter) params.set('status', statusFilter);
+
+        const response = await api.get(`/api/orders/admin/all?${params}`, {
+          headers: { Authorization: `Bearer ${token}` },
+          signal: controller.signal,
+        });
+
+        setOrders(response.data.data.orders);
+        setPagination(response.data.data.pagination);
+      } catch (error: any) {
+        if (error?.name !== 'AbortError') {
+          console.error('Gagal memuat pesanan:', error);
+        }
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchData();
+
+    return () => controller.abort();
   }, [statusFilter]);
 
   const handleSearch = (e: React.FormEvent) => {

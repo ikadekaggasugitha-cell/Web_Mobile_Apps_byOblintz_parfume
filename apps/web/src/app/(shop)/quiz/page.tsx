@@ -45,18 +45,26 @@ export default function QuizPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
+    const controller = new AbortController();
+
     const fetchOptions = async () => {
       try {
-        const response = await api.get('/api/quiz/options');
+        const response = await api.get('/api/quiz/options', {
+          signal: controller.signal,
+        });
         setOptions(response.data.data);
-      } catch (error) {
-        console.error('Gagal memuat opsi quiz:', error);
+      } catch (error: any) {
+        if (error?.name !== 'AbortError') {
+          console.error('Gagal memuat opsi quiz:', error);
+        }
       } finally {
         setIsLoading(false);
       }
     };
 
     fetchOptions();
+
+    return () => controller.abort();
   }, []);
 
   const handleSelect = (key: keyof QuizAnswers, value: string) => {

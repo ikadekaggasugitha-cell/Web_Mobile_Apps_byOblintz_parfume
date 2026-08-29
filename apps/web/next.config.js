@@ -2,10 +2,16 @@
 const nextConfig = {
   transpilePackages: ['@oblintz/shared'],
   images: {
-    domains: ['localhost'],
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: '**',
+      },
+    ],
+    formats: ['image/avif', 'image/webp'],
   },
   env: {
-    NEXT_PUBLIC_API_URL: process.env.API_URL || 'http://localhost:5000',
+    NEXT_PUBLIC_API_URL: process.env.API_URL,
   },
 };
 

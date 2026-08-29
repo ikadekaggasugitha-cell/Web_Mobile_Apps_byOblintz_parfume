@@ -1,15 +1,19 @@
 import axios from 'axios';
 
+const apiURL = process.env.NEXT_PUBLIC_API_URL;
+
 const api = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000',
+  baseURL: apiURL || 'http://localhost:5000',
   headers: {
     'Content-Type': 'application/json',
   },
 });
 
-// Request interceptor
 api.interceptors.request.use(
   (config) => {
+    if (!apiURL && typeof window !== 'undefined') {
+      console.warn('NEXT_PUBLIC_API_URL is not set. Using fallback.');
+    }
     if (typeof window !== 'undefined') {
       const token = localStorage.getItem('accessToken');
       if (token) {
@@ -23,7 +27,6 @@ api.interceptors.request.use(
   }
 );
 
-// Response interceptor
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
@@ -36,7 +39,7 @@ api.interceptors.response.use(
         const refreshToken = localStorage.getItem('refreshToken');
         if (refreshToken) {
           const { data } = await axios.post(
-            `${process.env.NEXT_PUBLIC_API_URL}/api/auth/refresh`,
+            `${apiURL || 'http://localhost:5000'}/api/auth/refresh`,
             { refreshToken }
           );
 
