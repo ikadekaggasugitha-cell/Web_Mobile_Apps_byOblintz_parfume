@@ -1,10 +1,14 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Image from 'next/image';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
 import { api } from '@/lib/api';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
+import { Input } from '@/components/ui/Input';
 
 interface Banner {
   id: string;
@@ -17,7 +21,25 @@ interface Banner {
   isActive: boolean;
 }
 
-const INITIAL_FORM = { title: '', subtitle: '', imageUrl: '', link: '', position: 'home', isActive: true };
+const bannerSchema = z.object({
+  title: z.string().min(1, 'Judul wajib diisi'),
+  subtitle: z.string().optional(),
+  imageUrl: z.string().min(1, 'URL Gambar wajib diisi').url('URL Gambar tidak valid'),
+  link: z.string().url('Link tidak valid').optional().or(z.literal('')),
+  position: z.string().min(1, 'Posisi wajib dipilih'),
+  isActive: z.boolean(),
+});
+
+type BannerInput = z.infer<typeof bannerSchema>;
+
+const DEFAULT_VALUES: BannerInput = {
+  title: '',
+  subtitle: '',
+  imageUrl: '',
+  link: '',
+  position: 'home',
+  isActive: true,
+};
 
 export default function AdminBannersPage() {
   const { toasts, success, error: showError } = useToast();
@@ -25,11 +47,19 @@ export default function AdminBannersPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editingBanner, setEditingBanner] = useState<Banner | null>(null);
-  const [form, setForm] = useState(INITIAL_FORM);
-  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [deleteConfirm, setDeleteConfirm] = useState<{ open: boolean; id: string | null }>({
     open: false,
     id: null,
+  });
+
+  const {
+    register,
+    handleSubmit,
+    reset,
+    formState: { errors, isSubmitting },
+  } = useForm<BannerInput>({
+    resolver: zodResolver(bannerSchema),
+    defaultValues: DEFAULT_VALUES,
   });
 
   const refreshBanners = useCallback(async () => {
@@ -70,41 +100,29 @@ export default function AdminBannersPage() {
     return () => controller.abort();
   }, []);
 
-  const validateForm = useCallback((): boolean => {
-    const errors: Record<string, string> = {};
-    if (!form.title.trim()) errors.title = 'Judul wajib diisi';
-    if (!form.imageUrl.trim()) errors.imageUrl = 'URL Gambar wajib diisi';
-    else if (!/^https?:\/\/.+\..+/.test(form.imageUrl)) errors.imageUrl = 'URL Gambar tidak valid';
-    if (form.link && form.link.trim() && !/^https?:\/\/.+\..+/.test(form.link)) errors.link = 'Link tidak valid';
-    setFormErrors(errors);
-    return Object.keys(errors).length === 0;
-  }, [form]);
-
-  const handleSave = useCallback(async () => {
-    if (!validateForm()) return;
-
+  const onSubmit = useCallback(async (data: BannerInput) => {
     const token = localStorage.getItem('adminAccessToken');
     try {
       if (editingBanner) {
-        await api.put(`/api/banners/admin/${editingBanner.id}`, form, {
+        await api.put(`/api/banners/admin/${editingBanner.id}`, data, {
           headers: { Authorization: `Bearer ${token}` },
         });
         success('Banner berhasil diupdate');
       } else {
-        await api.post('/api/banners/admin', form, {
+        await api.post('/api/banners/admin', data, {
           headers: { Authorization: `Bearer ${token}` },
         });
         success('Banner berhasil ditambahkan');
       }
       setShowModal(false);
       setEditingBanner(null);
-      setForm(INITIAL_FORM);
+      reset(DEFAULT_VALUES);
       refreshBanners();
     } catch (error) {
       console.error('Gagal simpan:', error);
       showError('Gagal menyimpan banner');
     }
-  }, [editingBanner, form, validateForm, refreshBanners, success, showError]);
+  }, [editingBanner, reset, refreshBanners, success, showError]);
 
   const handleDeleteConfirm = useCallback(async () => {
     if (!deleteConfirm.id) return;
@@ -127,21 +145,26 @@ export default function AdminBannersPage() {
   const handleOpenModal = useCallback((banner?: Banner) => {
     if (banner) {
       setEditingBanner(banner);
-      setForm({ title: banner.title, subtitle: banner.subtitle || '', imageUrl: banner.imageUrl, link: banner.link || '', position: banner.position, isActive: banner.isActive });
+      reset({
+        title: banner.title,
+        subtitle: banner.subtitle || '',
+        imageUrl: banner.imageUrl,
+        link: banner.link || '',
+        position: banner.position,
+        isActive: banner.isActive,
+      });
     } else {
       setEditingBanner(null);
-      setForm(INITIAL_FORM);
+      reset(DEFAULT_VALUES);
     }
-    setFormErrors({});
     setShowModal(true);
-  }, []);
+  }, [reset]);
 
   const handleCloseModal = useCallback(() => {
     setShowModal(false);
     setEditingBanner(null);
-    setForm(INITIAL_FORM);
-    setFormErrors({});
-  }, []);
+    reset(DEFAULT_VALUES);
+  }, [reset]);
 
   return (
     <div className="space-y-6">
@@ -219,44 +242,43 @@ export default function AdminBannersPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true" aria-labelledby="banner-modal-title">
           <div className="w-full max-w-lg rounded-xl bg-white p-6">
             <h2 id="banner-modal-title" className="mb-4 text-lg font-semibold">{editingBanner ? 'Edit Banner' : 'Banner Baru'}</h2>
-            <div className="space-y-4">
+            <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
               <div>
                 <label htmlFor="banner-title" className="mb-1.5 block text-sm font-medium text-gray-700">Judul</label>
-                <input id="banner-title" type="text" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} className={`h-10 w-full rounded-lg border px-3 text-sm ${formErrors.title ? 'border-red-500' : 'border-gray-300'}`} />
-                {formErrors.title && <p className="mt-1 text-xs text-red-500">{formErrors.title}</p>}
+                <Input id="banner-title" {...register('title')} error={errors.title?.message} />
               </div>
               <div>
                 <label htmlFor="banner-subtitle" className="mb-1.5 block text-sm font-medium text-gray-700">Subtitle (opsional)</label>
-                <input id="banner-subtitle" type="text" value={form.subtitle} onChange={(e) => setForm({ ...form, subtitle: e.target.value })} className="h-10 w-full rounded-lg border border-gray-300 px-3 text-sm" />
+                <Input id="banner-subtitle" {...register('subtitle')} />
               </div>
               <div>
                 <label htmlFor="banner-image" className="mb-1.5 block text-sm font-medium text-gray-700">URL Gambar</label>
-                <input id="banner-image" type="url" value={form.imageUrl} onChange={(e) => setForm({ ...form, imageUrl: e.target.value })} className={`h-10 w-full rounded-lg border px-3 text-sm ${formErrors.imageUrl ? 'border-red-500' : 'border-gray-300'}`} />
-                {formErrors.imageUrl && <p className="mt-1 text-xs text-red-500">{formErrors.imageUrl}</p>}
+                <Input id="banner-image" type="url" {...register('imageUrl')} error={errors.imageUrl?.message} />
               </div>
               <div>
                 <label htmlFor="banner-link" className="mb-1.5 block text-sm font-medium text-gray-700">Link (opsional)</label>
-                <input id="banner-link" type="url" value={form.link} onChange={(e) => setForm({ ...form, link: e.target.value })} className={`h-10 w-full rounded-lg border px-3 text-sm ${formErrors.link ? 'border-red-500' : 'border-gray-300'}`} />
-                {formErrors.link && <p className="mt-1 text-xs text-red-500">{formErrors.link}</p>}
+                <Input id="banner-link" type="url" {...register('link')} error={errors.link?.message} />
               </div>
               <div className="flex items-center gap-4">
                 <div>
                   <label htmlFor="banner-position" className="mb-1.5 block text-sm font-medium text-gray-700">Posisi</label>
-                  <select id="banner-position" value={form.position} onChange={(e) => setForm({ ...form, position: e.target.value })} className="h-10 rounded-lg border border-gray-300 px-3 text-sm">
+                  <select id="banner-position" {...register('position')} className="h-10 rounded-lg border border-gray-300 px-3 text-sm">
                     <option value="home">Home</option>
                     <option value="category">Kategori</option>
                   </select>
                 </div>
                 <label className="flex items-center gap-2">
-                  <input type="checkbox" checked={form.isActive} onChange={(e) => setForm({ ...form, isActive: e.target.checked })} className="rounded" />
+                  <input type="checkbox" {...register('isActive')} className="rounded" />
                   <span className="text-sm">Aktif</span>
                 </label>
               </div>
-            </div>
-            <div className="mt-6 flex justify-end gap-2">
-              <button onClick={handleCloseModal} className="rounded-lg border border-gray-300 px-4 py-2 text-sm">Batal</button>
-              <button onClick={handleSave} className="rounded-lg bg-primary-500 px-4 py-2 text-sm text-white hover:bg-primary-600">Simpan</button>
-            </div>
+              <div className="mt-6 flex justify-end gap-2">
+                <button type="button" onClick={handleCloseModal} className="rounded-lg border border-gray-300 px-4 py-2 text-sm">Batal</button>
+                <button type="submit" disabled={isSubmitting} className="rounded-lg bg-primary-500 px-4 py-2 text-sm text-white hover:bg-primary-600 disabled:opacity-50">
+                  {isSubmitting ? 'Menyimpan...' : 'Simpan'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

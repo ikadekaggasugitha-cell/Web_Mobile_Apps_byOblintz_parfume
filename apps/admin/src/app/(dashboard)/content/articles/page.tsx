@@ -1,9 +1,13 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
 import { api } from '@/lib/api';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
+import { Input } from '@/components/ui/Input';
 
 interface Article {
   id: string;
@@ -15,7 +19,21 @@ interface Article {
   createdAt: string;
 }
 
-const INITIAL_FORM = { title: '', content: '', excerpt: '', status: 'DRAFT' };
+const articleSchema = z.object({
+  title: z.string().min(1, 'Judul wajib diisi'),
+  content: z.string().min(1, 'Konten wajib diisi'),
+  excerpt: z.string().optional(),
+  status: z.enum(['DRAFT', 'PUBLISHED']),
+});
+
+type ArticleInput = z.infer<typeof articleSchema>;
+
+const DEFAULT_VALUES: ArticleInput = {
+  title: '',
+  content: '',
+  excerpt: '',
+  status: 'DRAFT',
+};
 
 export default function AdminArticlesPage() {
   const { toasts, success, error: showError } = useToast();
@@ -25,11 +43,19 @@ export default function AdminArticlesPage() {
   const [statusFilter, setStatusFilter] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [editingArticle, setEditingArticle] = useState<Article | null>(null);
-  const [form, setForm] = useState(INITIAL_FORM);
-  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [deleteConfirm, setDeleteConfirm] = useState<{ open: boolean; id: string | null }>({
     open: false,
     id: null,
+  });
+
+  const {
+    register,
+    handleSubmit,
+    reset,
+    formState: { errors, isSubmitting },
+  } = useForm<ArticleInput>({
+    resolver: zodResolver(articleSchema),
+    defaultValues: DEFAULT_VALUES,
   });
 
   const refreshArticles = useCallback(async () => {
@@ -78,39 +104,29 @@ export default function AdminArticlesPage() {
     return () => controller.abort();
   }, [statusFilter, search]);
 
-  const validateForm = useCallback((): boolean => {
-    const errors: Record<string, string> = {};
-    if (!form.title.trim()) errors.title = 'Judul wajib diisi';
-    if (!form.content.trim()) errors.content = 'Konten wajib diisi';
-    setFormErrors(errors);
-    return Object.keys(errors).length === 0;
-  }, [form]);
-
-  const handleSave = useCallback(async () => {
-    if (!validateForm()) return;
-
+  const onSubmit = useCallback(async (data: ArticleInput) => {
     const token = localStorage.getItem('adminAccessToken');
     try {
       if (editingArticle) {
-        await api.put(`/api/articles/admin/${editingArticle.id}`, form, {
+        await api.put(`/api/articles/admin/${editingArticle.id}`, data, {
           headers: { Authorization: `Bearer ${token}` },
         });
         success('Artikel berhasil diupdate');
       } else {
-        await api.post('/api/articles/admin', form, {
+        await api.post('/api/articles/admin', data, {
           headers: { Authorization: `Bearer ${token}` },
         });
         success('Artikel berhasil ditambahkan');
       }
       setShowModal(false);
       setEditingArticle(null);
-      setForm(INITIAL_FORM);
+      reset(DEFAULT_VALUES);
       refreshArticles();
     } catch (error) {
       console.error('Gagal simpan:', error);
       showError('Gagal menyimpan artikel');
     }
-  }, [editingArticle, form, validateForm, refreshArticles, success, showError]);
+  }, [editingArticle, reset, refreshArticles, success, showError]);
 
   const handleDeleteConfirm = useCallback(async () => {
     if (!deleteConfirm.id) return;
@@ -133,21 +149,24 @@ export default function AdminArticlesPage() {
   const handleOpenModal = useCallback((article?: Article) => {
     if (article) {
       setEditingArticle(article);
-      setForm({ title: article.title, content: '', excerpt: article.excerpt || '', status: article.status });
+      reset({
+        title: article.title,
+        content: '',
+        excerpt: article.excerpt || '',
+        status: article.status as 'DRAFT' | 'PUBLISHED',
+      });
     } else {
       setEditingArticle(null);
-      setForm(INITIAL_FORM);
+      reset(DEFAULT_VALUES);
     }
-    setFormErrors({});
     setShowModal(true);
-  }, []);
+  }, [reset]);
 
   const handleCloseModal = useCallback(() => {
     setShowModal(false);
     setEditingArticle(null);
-    setForm(INITIAL_FORM);
-    setFormErrors({});
-  }, []);
+    reset(DEFAULT_VALUES);
+  }, [reset]);
 
   return (
     <div className="space-y-6">
@@ -234,33 +253,34 @@ export default function AdminArticlesPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true" aria-labelledby="article-modal-title">
           <div className="w-full max-w-2xl rounded-xl bg-white p-6">
             <h2 id="article-modal-title" className="mb-4 text-lg font-semibold">{editingArticle ? 'Edit Artikel' : 'Artikel Baru'}</h2>
-            <div className="space-y-4">
+            <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
               <div>
                 <label htmlFor="article-title" className="mb-1.5 block text-sm font-medium text-gray-700">Judul</label>
-                <input id="article-title" type="text" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} className={`h-10 w-full rounded-lg border px-3 text-sm ${formErrors.title ? 'border-red-500' : 'border-gray-300'}`} />
-                {formErrors.title && <p className="mt-1 text-xs text-red-500">{formErrors.title}</p>}
+                <Input id="article-title" {...register('title')} error={errors.title?.message} />
               </div>
               <div>
                 <label htmlFor="article-content" className="mb-1.5 block text-sm font-medium text-gray-700">Konten</label>
-                <textarea id="article-content" value={form.content} onChange={(e) => setForm({ ...form, content: e.target.value })} className={`h-40 w-full rounded-lg border p-3 text-sm ${formErrors.content ? 'border-red-500' : 'border-gray-300'}`} />
-                {formErrors.content && <p className="mt-1 text-xs text-red-500">{formErrors.content}</p>}
+                <textarea id="article-content" {...register('content')} className={`h-40 w-full rounded-lg border p-3 text-sm ${errors.content ? 'border-red-500' : 'border-gray-300'} focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500`} />
+                {errors.content && <p className="mt-1 text-xs text-red-500">{errors.content.message}</p>}
               </div>
               <div>
                 <label htmlFor="article-excerpt" className="mb-1.5 block text-sm font-medium text-gray-700">Excerpt (opsional)</label>
-                <input id="article-excerpt" type="text" value={form.excerpt} onChange={(e) => setForm({ ...form, excerpt: e.target.value })} className="h-10 w-full rounded-lg border border-gray-300 px-3 text-sm" />
+                <Input id="article-excerpt" {...register('excerpt')} />
               </div>
               <div>
                 <label htmlFor="article-status" className="mb-1.5 block text-sm font-medium text-gray-700">Status</label>
-                <select id="article-status" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} className="h-10 w-full rounded-lg border border-gray-300 px-3 text-sm">
+                <select id="article-status" {...register('status')} className="h-10 w-full rounded-lg border border-gray-300 px-3 text-sm focus:border-primary-500 focus:outline-none">
                   <option value="DRAFT">Draft</option>
                   <option value="PUBLISHED">Published</option>
                 </select>
               </div>
-            </div>
-            <div className="mt-6 flex justify-end gap-2">
-              <button onClick={handleCloseModal} className="rounded-lg border border-gray-300 px-4 py-2 text-sm">Batal</button>
-              <button onClick={handleSave} className="rounded-lg bg-primary-500 px-4 py-2 text-sm text-white hover:bg-primary-600">Simpan</button>
-            </div>
+              <div className="mt-6 flex justify-end gap-2">
+                <button type="button" onClick={handleCloseModal} className="rounded-lg border border-gray-300 px-4 py-2 text-sm">Batal</button>
+                <button type="submit" disabled={isSubmitting} className="rounded-lg bg-primary-500 px-4 py-2 text-sm text-white hover:bg-primary-600 disabled:opacity-50">
+                  {isSubmitting ? 'Menyimpan...' : 'Simpan'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
