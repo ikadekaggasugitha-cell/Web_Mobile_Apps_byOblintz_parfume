@@ -8,6 +8,7 @@ import { api } from '@/lib/api';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
 import { Input } from '@/components/ui/Input';
+import { StatusBadge } from '@/components/ui/StatusBadge';
 
 interface Article {
   id: string;
@@ -233,9 +234,13 @@ export default function AdminArticlesPage() {
                   <td className="p-4 font-medium text-gray-900">{article.title}</td>
                   <td className="p-4 text-gray-600">{article.author}</td>
                   <td className="p-4">
-                    <span className={`inline-block rounded-full px-2 py-1 text-xs font-medium ${article.status === 'PUBLISHED' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
-                      {article.status}
-                    </span>
+                    <StatusBadge
+                      status={article.status}
+                      labels={{
+                        PUBLISHED: { label: 'Published', color: 'bg-green-100 text-green-800' },
+                        DRAFT: { label: 'Draft', color: 'bg-gray-100 text-gray-800' },
+                      }}
+                    />
                   </td>
                   <td className="p-4 text-gray-500">{new Date(article.createdAt).toLocaleDateString('id-ID')}</td>
                   <td className="p-4 flex gap-2">

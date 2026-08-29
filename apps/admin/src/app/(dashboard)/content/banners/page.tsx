@@ -9,6 +9,7 @@ import { api } from '@/lib/api';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
 import { Input } from '@/components/ui/Input';
+import { StatusBadge } from '@/components/ui/StatusBadge';
 
 interface Banner {
   id: string;
@@ -223,9 +224,13 @@ export default function AdminBannersPage() {
                   <td className="p-4 text-gray-600">{banner.position}</td>
                   <td className="p-4 text-gray-600">{banner.sortOrder}</td>
                   <td className="p-4">
-                    <span className={`inline-block rounded-full px-2 py-1 text-xs font-medium ${banner.isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
-                      {banner.isActive ? 'Aktif' : 'Nonaktif'}
-                    </span>
+                    <StatusBadge
+                      status={banner.isActive ? 'active' : 'inactive'}
+                      labels={{
+                        active: { label: 'Aktif', color: 'bg-green-100 text-green-800' },
+                        inactive: { label: 'Nonaktif', color: 'bg-gray-100 text-gray-800' },
+                      }}
+                    />
                   </td>
                   <td className="p-4 flex gap-2">
                     <button onClick={() => handleOpenModal(banner)} className="text-primary-500 hover:underline">Edit</button>

@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
+import { StatusBadge } from '@/components/ui/StatusBadge';
 
 interface DashboardStats {
   totalOrders: number;
@@ -154,13 +155,7 @@ export default function AdminDashboard() {
                       {formatCurrency(order.totalAmount)}
                     </td>
                     <td className="py-3">
-                      <span
-                        className={`inline-block rounded-full px-2 py-1 text-xs font-medium ${
-                          STATUS_LABELS[order.status]?.color || 'bg-gray-100'
-                        }`}
-                      >
-                        {STATUS_LABELS[order.status]?.label || order.status}
-                      </span>
+                      <StatusBadge status={order.status} labels={STATUS_LABELS} />
                     </td>
                     <td className="py-3 text-gray-500">
                       {new Date(order.createdAt).toLocaleDateString('id-ID')}

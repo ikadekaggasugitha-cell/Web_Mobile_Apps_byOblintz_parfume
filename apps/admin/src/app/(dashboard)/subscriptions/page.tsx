@@ -5,6 +5,7 @@ import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 import type { Pagination } from '@oblintz/shared';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
+import { StatusBadge } from '@/components/ui/StatusBadge';
 
 interface Subscription {
   id: string;
@@ -142,13 +143,7 @@ export default function AdminSubscriptionsPage() {
                       {FREQUENCY_LABELS[sub.frequency] || sub.frequency}
                     </td>
                     <td className="p-4">
-                      <span
-                        className={`inline-block rounded-full px-2 py-1 text-xs font-medium ${
-                          STATUS_LABELS[sub.status]?.color || 'bg-gray-100'
-                        }`}
-                      >
-                        {STATUS_LABELS[sub.status]?.label || sub.status}
-                      </span>
+                      <StatusBadge status={sub.status} labels={STATUS_LABELS} />
                     </td>
                     <td className="p-4 text-gray-600">
                       {sub.nextDelivery
