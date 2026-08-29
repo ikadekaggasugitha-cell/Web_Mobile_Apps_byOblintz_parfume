@@ -1,4 +1,4 @@
-import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { FastifyRequest, FastifyReply } from 'fastify';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -6,72 +6,72 @@ declare module 'fastify' {
   }
 }
 
-export async function authMiddleware(
+export async function requireAuth(
   request: FastifyRequest,
   reply: FastifyReply
 ) {
   try {
     const token = request.headers.authorization?.replace('Bearer ', '');
-    
+
     if (!token) {
       return reply.status(401).send({
         success: false,
         error: {
           code: 'UNAUTHORIZED',
-          message: 'No token provided',
+          message: 'Token tidak diberikan',
         },
       });
     }
 
     const decoded = request.server.jwt.verify<{ id: string }>(token);
     request.userId = decoded.id;
-  } catch (error) {
+  } catch {
     return reply.status(401).send({
       success: false,
       error: {
         code: 'UNAUTHORIZED',
-        message: 'Invalid or expired token',
+        message: 'Token tidak valid atau kedaluwarsa',
       },
     });
   }
 }
 
-export async function adminMiddleware(
+export async function requireAdmin(
   request: FastifyRequest,
   reply: FastifyReply
 ) {
   try {
     const token = request.headers.authorization?.replace('Bearer ', '');
-    
+
     if (!token) {
       return reply.status(401).send({
         success: false,
         error: {
           code: 'UNAUTHORIZED',
-          message: 'No token provided',
+          message: 'Token tidak diberikan',
         },
       });
     }
 
     const decoded = request.server.jwt.verify<{ id: string; role: string }>(token);
-    
+
     if (decoded.role !== 'ADMIN' && decoded.role !== 'SUPER_ADMIN') {
       return reply.status(403).send({
         success: false,
         error: {
           code: 'FORBIDDEN',
-          message: 'Admin access required',
+          message: 'Akses admin diperlukan',
         },
       });
     }
 
     request.userId = decoded.id;
-  } catch (error) {
+  } catch {
     return reply.status(401).send({
       success: false,
       error: {
         code: 'UNAUTHORIZED',
-        message: 'Invalid or expired token',
+        message: 'Token tidak valid atau kedaluwarsa',
       },
     });
   }
