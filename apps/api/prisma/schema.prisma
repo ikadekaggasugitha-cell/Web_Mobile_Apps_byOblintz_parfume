@@ -15,6 +15,11 @@ enum UserRole {
   SUPER_ADMIN
 }
 
+enum AdminRole {
+  ADMIN
+  SUPER_ADMIN
+}
+
 enum ProductStatus {
   ACTIVE
   INACTIVE
@@ -24,6 +29,7 @@ enum ProductStatus {
 
 enum OrderStatus {
   PENDING
+  WAITING_PAYMENT
   PAID
   PROCESSING
   SHIPPED
@@ -64,26 +70,34 @@ enum PromoType {
   FREE_SHIPPING
 }
 
+enum PromoCodeStatus {
+  ACTIVE
+  INACTIVE
+  EXPIRED
+}
+
 // ==================== TABLES ====================
 
 model User {
-  id           String   @id @default(uuid()) @db.Uuid
-  email        String   @unique @db.VarChar(255)
-  phone        String?  @unique @db.VarChar(20)
-  passwordHash String   @map("password_hash") @db.VarChar(255)
-  name         String   @db.VarChar(255)
-  avatar       String?  @db.VarChar(500)
-  role         UserRole @default(USER)
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+  id            String   @id @default(uuid()) @db.Uuid
+  email         String   @unique @db.VarChar(255)
+  phone         String?  @unique @db.VarChar(20)
+  passwordHash  String   @map("password_hash") @db.VarChar(255)
+  name          String   @db.VarChar(255)
+  avatar        String?  @db.VarChar(500)
+  role          UserRole @default(USER)
+  emailVerified Boolean  @default(false) @map("email_verified")
+  phoneVerified Boolean  @default(false) @map("phone_verified")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
 
-  addresses      Address[]
-  orders         Order[]
-  reviews        Review[]
-  wishlists      Wishlist[]
-  collections    Collection[]
-  subscriptions  Subscription[]
-  quizResults    QuizResult[]
+  addresses     Address[]
+  orders        Order[]
+  reviews       Review[]
+  wishlists     Wishlist[]
+  collections   Collection[]
+  subscriptions Subscription[]
+  quizResults   QuizResult[]
 
   @@map("users")
 }
@@ -99,22 +113,22 @@ model Product {
   sku          String?       @unique @db.VarChar(100)
   weight       Decimal?      @db.Decimal(8, 2)
   categoryId   String?       @map("category_id") @db.Uuid
-  notes        Json?         // { top: [], middle: [], base: [] }
+  notes        Json?
   occasions    String[]      @db.Text
   status       ProductStatus @default(ACTIVE)
-  images       Json?         // [{ url, alt, isPrimary }]
+  images       Json?
   metaTitle    String?       @map("meta_title") @db.VarChar(255)
   metaDesc     String?       @map("meta_desc") @db.Text
   createdAt    DateTime      @default(now()) @map("created_at")
   updatedAt    DateTime      @updatedAt @map("updated_at")
 
-  category      Category?       @relation(fields: [categoryId], references: [id])
-  orderItems    OrderItem[]
-  reviews       Review[]
-  wishlists     Wishlist[]
+  category        Category?        @relation(fields: [categoryId], references: [id])
+  orderItems      OrderItem[]
+  reviews         Review[]
+  wishlists       Wishlist[]
   collectionItems CollectionItem[]
-  quizResults   QuizResult[]
-  subscriptions Subscription[]
+  quizResults     QuizResult[]
+  subscriptions   Subscription[]
 
   @@index([categoryId])
   @@index([status])
@@ -135,28 +149,36 @@ model Category {
   children Category[] @relation("CategoryTree")
   products Product[]
 
+  @@index([parentId])
   @@map("categories")
 }
 
 model Order {
-  id              String      @id @default(uuid()) @db.Uuid
-  userId          String      @map("user_id") @db.Uuid
-  orderNumber     String      @unique @map("order_number") @db.VarChar(50)
-  status          OrderStatus @default(PENDING)
-  subtotal        Decimal     @db.Decimal(10, 2)
-  shippingFee     Decimal     @default(0) @map("shipping_fee") @db.Decimal(10, 2)
-  discount        Decimal     @default(0) @db.Decimal(10, 2)
-  totalAmount     Decimal     @map("total_amount") @db.Decimal(10, 2)
-  shippingAddress Json?       @map("shipping_address")
-  notes           String?     @db.Text
-  giftMessage     String?     @map("gift_message") @db.Text
-  createdAt       DateTime    @default(now()) @map("created_at")
-  updatedAt       DateTime    @updatedAt @map("updated_at")
+  id                String      @id @default(uuid()) @db.Uuid
+  userId            String      @map("user_id") @db.Uuid
+  orderNumber       String      @unique @map("order_number") @db.VarChar(50)
+  status            OrderStatus @default(PENDING)
+  subtotal          Decimal     @db.Decimal(10, 2)
+  shippingFee       Decimal     @default(0) @map("shipping_fee") @db.Decimal(10, 2)
+  discount          Decimal     @default(0) @db.Decimal(10, 2)
+  totalAmount       Decimal     @map("total_amount") @db.Decimal(10, 2)
+  promoCodeId       String?     @map("promo_code_id") @db.Uuid
+  shippingAddress   Json?       @map("shipping_address")
+  notes             String?     @db.Text
+  giftMessage       String?     @map("gift_message") @db.Text
+  estimatedDelivery DateTime?   @map("estimated_delivery")
+  shippedAt         DateTime?     @map("shipped_at")
+  deliveredAt       DateTime?     @map("delivered_at")
+  paidAt            DateTime?     @map("paid_at")
+  cancelledAt       DateTime?     @map("cancelled_at")
+  createdAt         DateTime      @default(now()) @map("created_at")
+  updatedAt         DateTime    @updatedAt @map("updated_at")
 
-  user          User           @relation(fields: [userId], references: [id])
-  items         OrderItem[]
-  transaction   Transaction?
-  giftWrapping  GiftWrapping?
+  user         User          @relation(fields: [userId], references: [id])
+  promoCode    PromoCode?    @relation(fields: [promoCodeId], references: [id])
+  items        OrderItem[]
+  transaction  Transaction?
+  giftWrapping GiftWrapping?
 
   @@index([userId])
   @@index([status])
@@ -164,12 +186,13 @@ model Order {
 }
 
 model OrderItem {
-  id         String  @id @default(uuid()) @db.Uuid
-  orderId    String  @map("order_id") @db.Uuid
-  productId  String  @map("product_id") @db.Uuid
-  quantity   Int
-  price      Decimal @db.Decimal(10, 2)
-  giftWrap   Boolean @default(false) @map("gift_wrap")
+  id            String  @id @default(uuid()) @db.Uuid
+  orderId       String  @map("order_id") @db.Uuid
+  productId     String  @map("product_id") @db.Uuid
+  quantity      Int
+  price         Decimal @db.Decimal(10, 2)
+  giftWrap      Boolean @default(false) @map("gift_wrap")
+  giftWrapPrice Decimal @default(0) @map("gift_wrap_price") @db.Decimal(10, 2)
 
   order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
   product Product @relation(fields: [productId], references: [id])
@@ -236,18 +259,19 @@ model Collection {
   description String?  @db.Text
   isPublic    Boolean  @default(false) @map("is_public")
   createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
 
-  user  User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user  User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   items CollectionItem[]
 
   @@map("collections")
 }
 
 model CollectionItem {
-  id           String   @id @default(uuid()) @db.Uuid
-  collectionId String   @map("collection_id") @db.Uuid
-  productId    String   @map("product_id") @db.Uuid
-  sortOrder    Int      @default(0) @map("sort_order")
+  id           String @id @default(uuid()) @db.Uuid
+  collectionId String @map("collection_id") @db.Uuid
+  productId    String @map("product_id") @db.Uuid
+  sortOrder    Int    @default(0) @map("sort_order")
 
   collection Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
   product    Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
@@ -257,14 +281,15 @@ model CollectionItem {
 }
 
 model Subscription {
-  id           String               @id @default(uuid()) @db.Uuid
-  userId       String               @map("user_id") @db.Uuid
-  productId    String               @map("product_id") @db.Uuid
+  id           String                @id @default(uuid()) @db.Uuid
+  userId       String                @map("user_id") @db.Uuid
+  productId    String                @map("product_id") @db.Uuid
   frequency    SubscriptionFrequency
-  nextDelivery DateTime             @map("next_delivery")
-  status       SubscriptionStatus   @default(ACTIVE)
-  createdAt    DateTime             @default(now()) @map("created_at")
-  updatedAt    DateTime             @updatedAt @map("updated_at")
+  nextDelivery DateTime              @map("next_delivery")
+  lastDelivery DateTime?             @map("last_delivery")
+  status       SubscriptionStatus    @default(ACTIVE)
+  createdAt    DateTime              @default(now()) @map("created_at")
+  updatedAt    DateTime              @updatedAt @map("updated_at")
 
   user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
   product Product @relation(fields: [productId], references: [id])
@@ -296,6 +321,7 @@ model GiftWrapping {
   id           String   @id @default(uuid()) @db.Uuid
   orderId      String   @unique @map("order_id") @db.Uuid
   wrappingType String   @map("wrapping_type") @db.VarChar(50)
+  price        Decimal  @db.Decimal(10, 2)
   message      String?  @db.Text
   createdAt    DateTime @default(now()) @map("created_at")
 
@@ -320,31 +346,34 @@ model Address {
 }
 
 model PromoCode {
-  id           String    @id @default(uuid()) @db.Uuid
-  code         String    @unique @db.VarChar(50)
-  type         PromoType
-  value        Decimal   @db.Decimal(10, 2)
-  minOrder     Decimal?  @map("min_order") @db.Decimal(10, 2)
-  maxDiscount  Decimal?  @map("max_discount") @db.Decimal(10, 2)
-  usageLimit   Int?      @map("usage_limit")
-  usedCount    Int       @default(0) @map("used_count")
-  startDate    DateTime? @map("start_date")
-  endDate      DateTime? @map("end_date")
-  status       String    @default("ACTIVE") @db.VarChar(20)
-  createdAt    DateTime  @default(now()) @map("created_at")
+  id          String          @id @default(uuid()) @db.Uuid
+  code        String          @unique @db.VarChar(50)
+  name        String?         @db.VarChar(255)
+  type        PromoType
+  value       Decimal         @db.Decimal(10, 2)
+  minOrder    Decimal?        @map("min_order") @db.Decimal(10, 2)
+  maxDiscount Decimal?        @map("max_discount") @db.Decimal(10, 2)
+  usageLimit  Int?            @map("usage_limit")
+  usedCount   Int             @default(0) @map("used_count")
+  startDate   DateTime?       @map("start_date")
+  endDate     DateTime?       @map("end_date")
+  status      PromoCodeStatus @default(ACTIVE)
+  createdAt   DateTime        @default(now()) @map("created_at")
+
+  orders Order[]
 
   @@map("promo_codes")
 }
 
 model AdminUser {
-  id           String   @id @default(uuid()) @db.Uuid
-  email        String   @unique @db.VarChar(255)
-  passwordHash String   @map("password_hash") @db.VarChar(255)
-  name         String   @db.VarChar(255)
-  role         String   @db.VarChar(50)
+  id           String    @id @default(uuid()) @db.Uuid
+  email        String    @unique @db.VarChar(255)
+  passwordHash String    @map("password_hash") @db.VarChar(255)
+  name         String    @db.VarChar(255)
+  role         AdminRole @default(ADMIN)
   permissions  Json?
   lastLogin    DateTime? @map("last_login")
-  createdAt    DateTime @default(now()) @map("created_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
 
   auditLogs AuditLog[]
 
@@ -365,4 +394,40 @@ model AuditLog {
   adminUser AdminUser? @relation(fields: [adminUserId], references: [id])
 
   @@map("audit_logs")
+}
+
+// ==================== CMS MODELS ====================
+
+model Banner {
+  id        String    @id @default(uuid()) @db.Uuid
+  title     String    @db.VarChar(255)
+  subtitle  String?   @db.VarChar(500)
+  imageUrl  String    @map("image_url") @db.VarChar(500)
+  link      String?   @db.VarChar(500)
+  position  String    @db.VarChar(50)
+  sortOrder Int       @default(0) @map("sort_order")
+  isActive  Boolean   @default(true) @map("is_active")
+  startDate DateTime? @map("start_date")
+  endDate   DateTime? @map("end_date")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  @@map("banners")
+}
+
+model Article {
+  id          String    @id @default(uuid()) @db.Uuid
+  title       String    @db.VarChar(255)
+  slug        String    @unique @db.VarChar(255)
+  excerpt     String?   @db.Text
+  content     String    @db.Text
+  imageUrl    String?   @map("image_url") @db.VarChar(500)
+  author      String    @db.VarChar(255)
+  status      String    @default("DRAFT") @db.VarChar(20)
+  metaTitle   String?   @map("meta_title") @db.VarChar(255)
+  metaDesc    String?   @map("meta_desc") @db.Text
+  publishedAt DateTime? @map("published_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  @@map("articles")
 }
