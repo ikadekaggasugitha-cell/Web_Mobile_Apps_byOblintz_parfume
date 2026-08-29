@@ -36,27 +36,31 @@ export async function processCheckout(data: CheckoutData) {
 
   // 2. Ambil detail produk
   const productIds = cartItems.map((i) => i.productId);
-  const products: any[] = await prisma.product.findMany({
+  const products: { id: string; name: string; price: any; stock: number }[] = await prisma.product.findMany({
     where: { id: { in: productIds }, status: 'ACTIVE' },
+    select: { id: true, name: true, price: true, stock: true },
   });
 
   const productMap = new Map(products.map((p) => [p.id, p]));
 
-  // 3. Validasi stok
+  // 3. Validasi produk exists
   for (const item of cartItems) {
     const product = productMap.get(item.productId);
     if (!product) {
       throw new Error(`Produk ${item.productId} tidak ditemukan`);
-    }
-    if (product.stock < item.quantity) {
-      throw new Error(`Stok ${product.name} tidak mencukupi`);
     }
   }
 
   // 4. Hitung subtotal
   let subtotal = 0;
   let totalGiftWrap = 0;
-  const orderItems: any[] = [];
+  const orderItems: {
+    productId: string;
+    quantity: number;
+    price: any;
+    giftWrap: boolean;
+    giftWrapPrice: number;
+  }[] = [];
 
   for (const item of cartItems) {
     const product = productMap.get(item.productId)!;
@@ -78,9 +82,10 @@ export async function processCheckout(data: CheckoutData) {
   // 5. Hitung ongkir
   const shippingFee = SHIPPING_COSTS[data.shippingMethod] || SHIPPING_COSTS.standard;
 
-  // 6. Hitung diskon (promo code)
+  // 6. Validasi promo code (tanpa increment - akan dilakukan di dalam transaction)
   let discount = 0;
   let promoCodeId = null;
+  let promoRecord: any = null;
 
   if (data.promoCode) {
     const promo = await prisma.promoCode.findUnique({
@@ -104,12 +109,7 @@ export async function processCheckout(data: CheckoutData) {
               }
 
               promoCodeId = promo.id;
-
-              // Update usedCount
-              await prisma.promoCode.update({
-                where: { id: promo.id },
-                data: { usedCount: { increment: 1 } },
-              });
+              promoRecord = promo;
             }
           }
         }
@@ -122,7 +122,7 @@ export async function processCheckout(data: CheckoutData) {
   // 7. Generate order number
   const orderNumber = `ORD-${nanoid(8).toUpperCase()}`;
 
-  // 8. Create order dalam transaction
+  // 8. Create order dalam transaction (stock decrement + promo increment atomic)
   const order = await prisma.$transaction(async (tx: any) => {
     // Create order
     const newOrder = await tx.order.create({
@@ -141,7 +141,7 @@ export async function processCheckout(data: CheckoutData) {
       },
     });
 
-    // Create order items
+    // Create order items + kurangi stok secara atomik
     for (const item of orderItems) {
       await tx.orderItem.create({
         data: {
@@ -154,10 +154,25 @@ export async function processCheckout(data: CheckoutData) {
         },
       });
 
-      // Kurangi stok
-      await tx.product.update({
-        where: { id: item.productId },
+      // Conditional decrement - gagal jika stok tidak cukup
+      const stockResult = await tx.product.updateMany({
+        where: {
+          id: item.productId,
+          stock: { gte: item.quantity },
+        },
         data: { stock: { decrement: item.quantity } },
+      });
+
+      if (stockResult.count === 0) {
+        throw new Error(`Stok produk ${item.productId} tidak mencukupi`);
+      }
+    }
+
+    // Increment promo usage di dalam transaction
+    if (promoRecord) {
+      await tx.promoCode.update({
+        where: { id: promoRecord.id },
+        data: { usedCount: { increment: 1 } },
       });
     }
 

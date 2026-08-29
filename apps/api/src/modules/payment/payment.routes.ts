@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import crypto from 'crypto';
 import prisma from '../../config/database';
-import { requireAuth } from '../../middleware/auth';
+import { requireAuth, requireAdmin } from '../../middleware/auth';
 import { config } from '../../config';
 import {
   createMidtransQRIS,
@@ -67,22 +67,25 @@ export async function paymentRoutes(app: FastifyInstance) {
         qrCode = `00020101021226${order.orderNumber}52040000530336054${Number(order.totalAmount)}5802ID5925OBLINTZ PERFUME6006JAKARTA6304`;
       }
 
-      // Save transaction record
-      const transaction = await prisma.transaction.create({
-        data: {
-          orderId: order.id,
-          paymentId,
-          amount: order.totalAmount,
-          method: 'QRIS',
-          status: 'PENDING',
-          qrCode,
-        },
-      });
+      // Save transaction record + update order status secara atomik
+      const transaction = await prisma.$transaction(async (tx: any) => {
+        const newTransaction = await tx.transaction.create({
+          data: {
+            orderId: order.id,
+            paymentId,
+            amount: order.totalAmount,
+            method: 'QRIS',
+            status: 'PENDING',
+            qrCode,
+          },
+        });
 
-      // Update order status
-      await prisma.order.update({
-        where: { id: order.id },
-        data: { status: 'WAITING_PAYMENT' },
+        await tx.order.update({
+          where: { id: order.id },
+          data: { status: 'WAITING_PAYMENT' },
+        });
+
+        return newTransaction;
       });
 
       return reply.status(201).send({
@@ -215,7 +218,7 @@ export async function paymentRoutes(app: FastifyInstance) {
 
   // ==================== ADMIN: LIST ALL TRANSACTIONS ====================
   app.get('/admin/all', {
-    preHandler: [requireAuth],
+    preHandler: [requireAdmin],
   }, async (request, reply) => {
     const { page = '1', limit = '20', status } = request.query as {
       page?: string;

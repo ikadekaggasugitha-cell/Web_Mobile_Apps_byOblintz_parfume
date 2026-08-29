@@ -183,7 +183,15 @@ export async function uploadRoutes(app: FastifyInstance) {
       });
     }
 
-    const filePath = path.join(UPLOAD_DIR, url.replace('/uploads/', ''));
+    const relativePath = url.replace('/uploads/', '');
+    const filePath = path.resolve(UPLOAD_DIR, relativePath);
+
+    if (!filePath.startsWith(UPLOAD_DIR)) {
+      return reply.status(400).send({
+        success: false,
+        error: { code: 'INVALID_URL', message: 'URL tidak valid' },
+      });
+    }
 
     try {
       await fs.unlink(filePath);
