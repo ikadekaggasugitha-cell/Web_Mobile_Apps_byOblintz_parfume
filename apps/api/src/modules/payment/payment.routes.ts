@@ -3,6 +3,10 @@ import crypto from 'crypto';
 import prisma from '../../config/database';
 import { requireAuth } from '../../middleware/auth';
 import { config } from '../../config';
+import {
+  createMidtransQRIS,
+  verifyMidtransSignature,
+} from '../../services/midtrans';
 
 export async function paymentRoutes(app: FastifyInstance) {
   // ==================== CREATE QRIS PAYMENT ====================
@@ -30,58 +34,78 @@ export async function paymentRoutes(app: FastifyInstance) {
       });
     }
 
-    // Generate unique transaction ID
     const paymentId = `PAY-${order.orderNumber}-${Date.now()}`;
+    const shipping = order.shippingAddress as any;
 
-    // Midtrans QRIS payload
-    const payload = {
-      transaction_details: {
-        order_id: order.orderNumber,
-        gross_amount: Number(order.totalAmount),
-      },
-      payment_type: 'qris',
-      customer_details: {
-        first_name: (order.shippingAddress as any)?.name || 'Customer',
-        email: 'customer@oblintz.com',
-        phone: (order.shippingAddress as any)?.phone || '',
-      },
-      callbacks: {
-        finish: `${config.frontendUrl}/payment/callback`,
-      },
-    };
+    try {
+      let qrCode = '';
 
-    // TODO: Integrasi Midtrans production
-    const mockQrCode = `00020101021226${order.orderNumber}52040000530336054${Number(order.totalAmount)}5802ID5925OBLINTZ PERFUME6006JAKARTA6304`;
+      if (config.midtrans.serverKey) {
+        // Real Midtrans integration
+        const midtransResponse = await createMidtransQRIS(
+          order.orderNumber,
+          Number(order.totalAmount),
+          {
+            name: shipping?.name || 'Customer',
+            email: shipping?.email || 'customer@oblintz.com',
+            phone: shipping?.phone || '',
+          }
+        );
 
-    // Simpan transaction record
-    const transaction = await prisma.transaction.create({
-      data: {
-        orderId: order.id,
-        paymentId,
-        amount: order.totalAmount,
-        method: 'QRIS',
-        status: 'PENDING',
-        qrCode: mockQrCode,
-      },
-    });
+        // Extract QR code from actions
+        const qrAction = midtransResponse.actions?.find(
+          (a) => a.method === 'GET_QR'
+        );
+        qrCode = qrAction?.url || midtransResponse.qr_code || midtransResponse.payment_code || '';
 
-    // Update order status
-    await prisma.order.update({
-      where: { id: order.id },
-      data: { status: 'WAITING_PAYMENT' },
-    });
+        // If no QR from actions, generate from snap URL
+        if (!qrCode && midtransResponse.redirect_url) {
+          qrCode = midtransResponse.redirect_url;
+        }
+      } else {
+        // Mock QR code for sandbox/dev without keys
+        qrCode = `00020101021226${order.orderNumber}52040000530336054${Number(order.totalAmount)}5802ID5925OBLINTZ PERFUME6006JAKARTA6304`;
+      }
 
-    return reply.status(201).send({
-      success: true,
-      data: {
-        transactionId: transaction.id,
-        paymentId,
-        orderNumber: order.orderNumber,
-        amount: order.totalAmount,
-        qrCode: mockQrCode,
-        expiresAt: new Date(Date.now() + 30 * 60 * 1000),
-      },
-    });
+      // Save transaction record
+      const transaction = await prisma.transaction.create({
+        data: {
+          orderId: order.id,
+          paymentId,
+          amount: order.totalAmount,
+          method: 'QRIS',
+          status: 'PENDING',
+          qrCode,
+        },
+      });
+
+      // Update order status
+      await prisma.order.update({
+        where: { id: order.id },
+        data: { status: 'WAITING_PAYMENT' },
+      });
+
+      return reply.status(201).send({
+        success: true,
+        data: {
+          transactionId: transaction.id,
+          paymentId,
+          orderNumber: order.orderNumber,
+          amount: order.totalAmount,
+          qrCode,
+          expiresAt: new Date(Date.now() + 30 * 60 * 1000),
+        },
+      });
+    } catch (error: any) {
+      request.log.error('Midtrans error:', error);
+      return reply.status(500).send({
+        success: false,
+        error: {
+          code: 'PAYMENT_ERROR',
+          message: 'Gagal membuat pembayaran. Silakan coba lagi.',
+        },
+      });
+    }
   });
 
   // ==================== CHECK PAYMENT STATUS ====================
@@ -119,25 +143,12 @@ export async function paymentRoutes(app: FastifyInstance) {
   app.post('/webhook', async (request, reply) => {
     const body = request.body as any;
 
-    // Verifikasi signature (production)
-    if (config.midtrans.serverKey) {
-      const signatureKey = body.signature_key;
-      const orderId = body.order_id;
-      const statusCode = body.status_code;
-      const grossAmount = body.gross_amount;
-      const serverKey = config.midtrans.serverKey;
-
-      const expectedSignature = crypto
-        .createHash('sha512')
-        .update(`${orderId}${statusCode}${grossAmount}${serverKey}`)
-        .digest('hex');
-
-      if (signatureKey !== expectedSignature) {
-        return reply.status(401).send({
-          success: false,
-          error: { code: 'INVALID_SIGNATURE', message: 'Signature tidak valid' },
-        });
-      }
+    // Verify signature
+    if (!verifyMidtransSignature(body)) {
+      return reply.status(401).send({
+        success: false,
+        error: { code: 'INVALID_SIGNATURE', message: 'Signature tidak valid' },
+      });
     }
 
     const { order_id, transaction_status, fraud_status } = body;

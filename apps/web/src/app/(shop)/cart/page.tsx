@@ -80,6 +80,22 @@ export default function CartPage() {
     }
   };
 
+  const toggleGiftWrap = async (productId: string, giftWrap: boolean) => {
+    const token = localStorage.getItem('accessToken');
+    const item = cart?.items.find((i: any) => i.id === productId);
+    if (!item) return;
+    try {
+      await api.put(
+        `/api/cart/items/${productId}`,
+        { quantity: item.quantity, giftWrap },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      fetchCart();
+    } catch (error) {
+      console.error('Gagal update gift wrap:', error);
+    }
+  };
+
   const removeItem = async (productId: string) => {
     const token = localStorage.getItem('accessToken');
     try {
@@ -212,7 +228,7 @@ export default function CartPage() {
                   type="checkbox"
                   checked={item.giftWrap}
                   onChange={(e) => {
-                    // TODO: Update gift wrap
+                    toggleGiftWrap(item.id, e.target.checked);
                   }}
                   className="rounded border-gray-300"
                 />

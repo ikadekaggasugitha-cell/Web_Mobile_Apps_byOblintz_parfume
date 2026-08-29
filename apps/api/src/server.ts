@@ -21,6 +21,9 @@ import { uploadRoutes } from './modules/upload/upload.routes';
 import { quizRoutes } from './modules/quiz/quiz.routes';
 import { collectionRoutes } from './modules/collection/collection.routes';
 import { subscriptionRoutes } from './modules/subscription/subscription.routes';
+import { articleRoutes } from './modules/article/article.routes';
+import { bannerRoutes } from './modules/banner/banner.routes';
+import { reportRoutes } from './modules/report/report.routes';
 
 const server = Fastify({
   logger: {
@@ -137,6 +140,9 @@ async function bootstrap() {
   await server.register(quizRoutes, { prefix: '/api/quiz' });
   await server.register(collectionRoutes, { prefix: '/api/collections' });
   await server.register(subscriptionRoutes, { prefix: '/api/subscriptions' });
+  await server.register(articleRoutes, { prefix: '/api/articles' });
+  await server.register(bannerRoutes, { prefix: '/api/banners' });
+  await server.register(reportRoutes, { prefix: '/api/reports' });
 
   // Start server
   try {
