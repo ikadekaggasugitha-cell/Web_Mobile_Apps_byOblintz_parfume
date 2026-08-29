@@ -3,6 +3,7 @@ import cors from '@fastify/cors';
 import jwt from '@fastify/jwt';
 import rateLimit from '@fastify/rate-limit';
 import multipart from '@fastify/multipart';
+import helmet from '@fastify/helmet';
 import { config } from './config';
 import prisma from './config/database';
 import { redis } from './config/redis';
@@ -112,6 +113,10 @@ server.addHook('onResponse', async (request, reply) => {
 async function bootstrap() {
   // Register plugins
   await server.register(cors, config.cors);
+
+  await server.register(helmet, {
+    contentSecurityPolicy: false,
+  });
 
   await server.register(jwt, {
     secret: config.jwt.accessSecret,
