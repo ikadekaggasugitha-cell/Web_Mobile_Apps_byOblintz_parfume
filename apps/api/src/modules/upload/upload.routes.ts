@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { requireAuth, requireAdmin } from '../../middleware/auth';
+import { handleRouteError } from '../../lib/errors';
 import { config } from '../../config';
 import path from 'path';
 import fs from 'fs/promises';
@@ -97,13 +98,7 @@ export async function uploadRoutes(app: FastifyInstance) {
         },
       });
     } catch (error) {
-      if (error instanceof Error) {
-        return reply.status(500).send({
-          success: false,
-          error: { code: 'UPLOAD_ERROR', message: error.message },
-        });
-      }
-      throw error;
+      return handleRouteError(error, reply);
     }
   });
 
@@ -121,6 +116,8 @@ export async function uploadRoutes(app: FastifyInstance) {
         const ext = getFileExtension(part.filename);
 
         if (!isAllowedImage(ext)) {
+          // Drain the stream so the multipart iterator can advance to the next part.
+          part.file.resume();
           continue;
         }
 
@@ -137,7 +134,11 @@ export async function uploadRoutes(app: FastifyInstance) {
           chunks.push(chunk);
         }
 
-        if (skipped) continue;
+        if (skipped) {
+          // Drain remaining bytes of the oversized file before moving on.
+          part.file.resume();
+          continue;
+        }
 
         const buffer = Buffer.concat(chunks);
         const uniqueName = `${crypto.randomBytes(16).toString('hex')}${ext}`;
@@ -160,13 +161,7 @@ export async function uploadRoutes(app: FastifyInstance) {
         data: { files: uploadResults, count: uploadResults.length },
       });
     } catch (error) {
-      if (error instanceof Error) {
-        return reply.status(500).send({
-          success: false,
-          error: { code: 'UPLOAD_ERROR', message: error.message },
-        });
-      }
-      throw error;
+      return handleRouteError(error, reply);
     }
   });
 

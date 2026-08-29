@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import prisma from '../../config/database';
+import { handleRouteError } from '../../lib/errors';
 import { redis } from '../../config/redis';
 import { requireAuth } from '../../middleware/auth';
 import { addToCartSchema, updateCartItemSchema, applyPromoSchema } from './cart.schema';
@@ -127,6 +128,7 @@ export async function cartRoutes(app: FastifyInstance) {
         });
       }
 
+      let totalItems = 0;
       try {
         const cart = await getCart(request.userId!);
         const existingIndex = cart.findIndex((i) => i.productId === input.productId);
@@ -159,22 +161,17 @@ export async function cartRoutes(app: FastifyInstance) {
         }
 
         await saveCart(request.userId!, cart);
+        totalItems = cart.reduce((sum, i) => sum + i.quantity, 0);
       } finally {
         await releaseLock(lockKey);
       }
 
       return reply.status(200).send({
         success: true,
-        data: { message: 'Produk ditambahkan ke keranjang', totalItems: 0 },
+        data: { message: 'Produk ditambahkan ke keranjang', totalItems },
       });
     } catch (error) {
-      if (error instanceof Error) {
-        return reply.status(400).send({
-          success: false,
-          error: { code: 'VALIDATION_ERROR', message: error.message },
-        });
-      }
-      throw error;
+      return handleRouteError(error, reply);
     }
   });
 
@@ -239,13 +236,7 @@ export async function cartRoutes(app: FastifyInstance) {
         data: { message: 'Keranjang diperbarui' },
       });
     } catch (error) {
-      if (error instanceof Error) {
-        return reply.status(400).send({
-          success: false,
-          error: { code: 'VALIDATION_ERROR', message: error.message },
-        });
-      }
-      throw error;
+      return handleRouteError(error, reply);
     }
   });
 
@@ -399,13 +390,7 @@ export async function cartRoutes(app: FastifyInstance) {
         },
       });
     } catch (error) {
-      if (error instanceof Error) {
-        return reply.status(400).send({
-          success: false,
-          error: { code: 'VALIDATION_ERROR', message: error.message },
-        });
-      }
-      throw error;
+      return handleRouteError(error, reply);
     }
   });
 }

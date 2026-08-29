@@ -5,6 +5,7 @@ import { nanoid } from 'nanoid';
 import prisma from '../../config/database';
 import { redis } from '../../config/redis';
 import { requireAuth } from '../../middleware/auth';
+import { handleRouteError } from '../../lib/errors';
 import {
   registerSchema,
   loginSchema,
@@ -111,13 +112,7 @@ export async function authRoutes(app: FastifyInstance) {
         },
       });
     } catch (error) {
-      if (error instanceof Error) {
-        return reply.status(400).send({
-          success: false,
-          error: { code: 'VALIDATION_ERROR', message: error.message },
-        });
-      }
-      throw error;
+      return handleRouteError(error, reply);
     }
   });
 
@@ -192,13 +187,7 @@ export async function authRoutes(app: FastifyInstance) {
         },
       });
     } catch (error) {
-      if (error instanceof Error) {
-        return reply.status(400).send({
-          success: false,
-          error: { code: 'VALIDATION_ERROR', message: error.message },
-        });
-      }
-      throw error;
+      return handleRouteError(error, reply);
     }
   });
 
@@ -356,13 +345,7 @@ export async function authRoutes(app: FastifyInstance) {
         data: { message: 'Jika email terdaftar, link reset password telah dikirim' },
       });
     } catch (error) {
-      if (error instanceof Error) {
-        return reply.status(400).send({
-          success: false,
-          error: { code: 'VALIDATION_ERROR', message: error.message },
-        });
-      }
-      throw error;
+      return handleRouteError(error, reply);
     }
   });
 
@@ -426,13 +409,7 @@ export async function authRoutes(app: FastifyInstance) {
         data: { message: 'Password berhasil direset' },
       });
     } catch (error) {
-      if (error instanceof Error) {
-        return reply.status(400).send({
-          success: false,
-          error: { code: 'VALIDATION_ERROR', message: error.message },
-        });
-      }
-      throw error;
+      return handleRouteError(error, reply);
     }
   });
 
@@ -484,13 +461,7 @@ export async function authRoutes(app: FastifyInstance) {
         data: { message: 'Jika email terdaftar, kode OTP telah dikirim' },
       });
     } catch (error) {
-      if (error instanceof Error) {
-        return reply.status(400).send({
-          success: false,
-          error: { code: 'VALIDATION_ERROR', message: error.message },
-        });
-      }
-      throw error;
+      return handleRouteError(error, reply);
     }
   });
 
@@ -541,13 +512,7 @@ export async function authRoutes(app: FastifyInstance) {
         data: { message: 'Email berhasil diverifikasi' },
       });
     } catch (error) {
-      if (error instanceof Error) {
-        return reply.status(400).send({
-          success: false,
-          error: { code: 'VALIDATION_ERROR', message: error.message },
-        });
-      }
-      throw error;
+      return handleRouteError(error, reply);
     }
   });
 }

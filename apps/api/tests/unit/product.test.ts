@@ -95,6 +95,23 @@ describe('product module (TC-010 – TC-014)', () => {
         })
       );
     });
+
+    // M6: cover every branch of the sort switch
+    it.each([
+      ['price_desc', { price: 'desc' }],
+      ['popular', { reviews: { _count: 'desc' } }],
+      ['name', { name: 'asc' }],
+      ['newest', { createdAt: 'desc' }],
+    ])('maps sort=%s to the correct orderBy', async (sort, orderBy) => {
+      prisma.product.findMany.mockResolvedValue([]);
+      prisma.product.count.mockResolvedValue(0);
+
+      await app.inject({ method: 'GET', url: `/api/products?sort=${sort}` });
+
+      expect(prisma.product.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ orderBy })
+      );
+    });
   });
 
   // ==================== TC-011: SEARCH ====================
@@ -257,6 +274,7 @@ describe('product module (TC-010 – TC-014)', () => {
     });
 
     it('creates a product and generates a slug', async () => {
+      prisma.product.findUnique.mockResolvedValue(null); // slug is unique
       prisma.product.create.mockResolvedValue(makeProduct());
 
       const res = await app.inject({
@@ -274,6 +292,34 @@ describe('product module (TC-010 – TC-014)', () => {
       );
     });
 
+    it('returns 400 VALIDATION_ERROR when required fields are missing (H3)', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/products/admin',
+        headers: { authorization: `Bearer ${ADMIN_TOKEN(app)}` },
+        payload: { description: 'no name or price' },
+      });
+
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error.code).toBe('VALIDATION_ERROR');
+      expect(prisma.product.create).not.toHaveBeenCalled();
+    });
+
+    it('returns 409 CONFLICT when the generated slug already exists (H3)', async () => {
+      prisma.product.findUnique.mockResolvedValue(makeProduct()); // slug taken
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/products/admin',
+        headers: { authorization: `Bearer ${ADMIN_TOKEN(app)}` },
+        payload: { name: 'Amber Noir', price: 250000 },
+      });
+
+      expect(res.statusCode).toBe(409);
+      expect(res.json().error.code).toBe('CONFLICT');
+      expect(prisma.product.create).not.toHaveBeenCalled();
+    });
+
     it('updates an existing product', async () => {
       prisma.product.findUnique.mockResolvedValue(makeProduct());
       prisma.product.update.mockResolvedValue(makeProduct({ price: 275000 }));
@@ -287,6 +333,44 @@ describe('product module (TC-010 – TC-014)', () => {
 
       expect(res.statusCode).toBe(200);
       expect(prisma.product.update).toHaveBeenCalled();
+    });
+
+    it('updates every mutable field (M6 branch coverage)', async () => {
+      prisma.product.findUnique.mockResolvedValue(makeProduct());
+      prisma.product.update.mockResolvedValue(makeProduct());
+
+      const res = await app.inject({
+        method: 'PUT',
+        url: '/api/products/admin/prod-1',
+        headers: { authorization: `Bearer ${ADMIN_TOKEN(app)}` },
+        payload: {
+          name: 'Amber Deluxe',
+          description: 'Deskripsi baru',
+          price: 300000,
+          comparePrice: 350000,
+          stock: 15,
+          sku: 'SKU-123',
+          weight: 120,
+          categoryId: '22222222-2222-2222-2222-222222222222',
+          notes: ['amber', 'musk'],
+          occasions: ['formal'],
+          status: 'ACTIVE',
+          images: ['https://cdn/x.jpg'],
+          metaTitle: 'Amber Deluxe',
+          metaDesc: 'Parfum amber mewah',
+        },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const data = prisma.product.update.mock.calls[0][0].data;
+      expect(data).toMatchObject({
+        name: 'Amber Deluxe',
+        price: 300000,
+        stock: 15,
+        sku: 'SKU-123',
+        status: 'ACTIVE',
+        metaTitle: 'Amber Deluxe',
+      });
     });
 
     it('returns 404 when updating a missing product', async () => {

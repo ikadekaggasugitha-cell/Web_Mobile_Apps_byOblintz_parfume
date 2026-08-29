@@ -1,6 +1,25 @@
 import { FastifyInstance } from 'fastify';
+import { z } from 'zod';
 import prisma from '../../config/database';
 import { requireAuth, requireAdmin } from '../../middleware/auth';
+import { handleRouteError } from '../../lib/errors';
+
+const ORDER_STATUSES = [
+  'PENDING',
+  'WAITING_PAYMENT',
+  'PAID',
+  'PROCESSING',
+  'SHIPPED',
+  'DELIVERED',
+  'CANCELLED',
+  'REFUNDED',
+] as const;
+
+const updateOrderStatusSchema = z.object({
+  status: z.enum(ORDER_STATUSES),
+  trackingNumber: z.string().optional(),
+  courier: z.string().optional(),
+});
 
 export async function orderRoutes(app: FastifyInstance) {
   // ==================== LIST USER ORDERS ====================
@@ -275,11 +294,15 @@ export async function orderRoutes(app: FastifyInstance) {
     preHandler: [requireAdmin],
   }, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const { status, trackingNumber, courier } = request.body as {
-      status: string;
-      trackingNumber?: string;
-      courier?: string;
-    };
+
+    let status: string;
+    let trackingNumber: string | undefined;
+    let courier: string | undefined;
+    try {
+      ({ status, trackingNumber, courier } = updateOrderStatusSchema.parse(request.body));
+    } catch (error) {
+      return handleRouteError(error, reply);
+    }
 
     const order = await prisma.order.findUnique({ where: { id } });
     if (!order) {

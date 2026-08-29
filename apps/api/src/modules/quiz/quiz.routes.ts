@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import prisma from '../../config/database';
+import { handleRouteError } from '../../lib/errors';
 import { quizAnswerSchema, calculateRecommendations } from './quiz.schema';
 
 export async function quizRoutes(app: FastifyInstance) {
@@ -35,13 +36,7 @@ export async function quizRoutes(app: FastifyInstance) {
         },
       });
     } catch (error) {
-      if (error instanceof Error) {
-        return reply.status(400).send({
-          success: false,
-          error: { code: 'VALIDATION_ERROR', message: error.message },
-        });
-      }
-      throw error;
+      return handleRouteError(error, reply);
     }
   });
 }

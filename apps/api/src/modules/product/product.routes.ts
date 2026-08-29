@@ -1,6 +1,29 @@
 import { FastifyInstance } from 'fastify';
+import { z } from 'zod';
 import prisma from '../../config/database';
 import { requireAuth, requireAdmin } from '../../middleware/auth';
+import { handleRouteError } from '../../lib/errors';
+
+const PRODUCT_STATUSES = ['ACTIVE', 'INACTIVE', 'DRAFT', 'ARCHIVED'] as const;
+
+const productCreateSchema = z.object({
+  name: z.string().min(1, 'Nama produk diperlukan'),
+  description: z.string().optional(),
+  price: z.number().positive('Harga harus lebih dari 0'),
+  comparePrice: z.number().positive().optional().nullable(),
+  stock: z.number().int().min(0).optional(),
+  sku: z.string().optional(),
+  weight: z.number().optional(),
+  categoryId: z.string().uuid('Category ID tidak valid').optional(),
+  notes: z.any().optional(),
+  occasions: z.array(z.string()).optional(),
+  status: z.enum(PRODUCT_STATUSES).optional(),
+  images: z.array(z.string()).optional(),
+  metaTitle: z.string().optional(),
+  metaDesc: z.string().optional(),
+});
+
+const productUpdateSchema = productCreateSchema.partial();
 
 export async function productRoutes(app: FastifyInstance) {
   // ==================== LIST PRODUCTS ====================
@@ -318,36 +341,49 @@ export async function productRoutes(app: FastifyInstance) {
   app.post('/admin', {
     preHandler: [requireAdmin],
   }, async (request, reply) => {
-    const body = request.body as any;
+    try {
+      const input = productCreateSchema.parse(request.body);
 
-    // Generate slug dari name
-    const slug = body.name
-      .toLowerCase()
-      .replace(/[^\w ]+/g, '')
-      .replace(/ +/g, '-');
+      // Generate slug dari name
+      const slug = input.name
+        .toLowerCase()
+        .replace(/[^\w ]+/g, '')
+        .replace(/ +/g, '-');
 
-    const product = await prisma.product.create({
-      data: {
-        name: body.name,
-        slug,
-        description: body.description,
-        price: body.price,
-        comparePrice: body.comparePrice,
-        stock: body.stock || 0,
-        sku: body.sku,
-        weight: body.weight,
-        categoryId: body.categoryId,
-        notes: body.notes,
-        occasions: body.occasions || [],
-        status: body.status || 'DRAFT',
-        images: body.images || [],
-        metaTitle: body.metaTitle,
-        metaDesc: body.metaDesc,
-      },
-      include: { category: true },
-    });
+      // Cek slug unik agar tidak melempar error unique constraint dari Prisma
+      const existing = await prisma.product.findUnique({ where: { slug } });
+      if (existing) {
+        return reply.status(409).send({
+          success: false,
+          error: { code: 'CONFLICT', message: 'Produk dengan nama serupa sudah ada' },
+        });
+      }
 
-    return reply.status(201).send({ success: true, data: product });
+      const product = await prisma.product.create({
+        data: {
+          name: input.name,
+          slug,
+          description: input.description,
+          price: input.price,
+          comparePrice: input.comparePrice,
+          stock: input.stock ?? 0,
+          sku: input.sku,
+          weight: input.weight,
+          categoryId: input.categoryId,
+          notes: input.notes,
+          occasions: input.occasions ?? [],
+          status: input.status ?? 'DRAFT',
+          images: input.images ?? [],
+          metaTitle: input.metaTitle,
+          metaDesc: input.metaDesc,
+        },
+        include: { category: true },
+      });
+
+      return reply.status(201).send({ success: true, data: product });
+    } catch (error) {
+      return handleRouteError(error, reply);
+    }
   });
 
   // ==================== ADMIN: UPDATE PRODUCT ====================
@@ -355,7 +391,6 @@ export async function productRoutes(app: FastifyInstance) {
     preHandler: [requireAdmin],
   }, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const body = request.body as any;
 
     const existing = await prisma.product.findUnique({ where: { id } });
     if (!existing) {
@@ -365,28 +400,34 @@ export async function productRoutes(app: FastifyInstance) {
       });
     }
 
-    const product = await prisma.product.update({
-      where: { id },
-      data: {
-        ...(body.name && { name: body.name }),
-        ...(body.description !== undefined && { description: body.description }),
-        ...(body.price && { price: body.price }),
-        ...(body.comparePrice !== undefined && { comparePrice: body.comparePrice }),
-        ...(body.stock !== undefined && { stock: body.stock }),
-        ...(body.sku !== undefined && { sku: body.sku }),
-        ...(body.weight !== undefined && { weight: body.weight }),
-        ...(body.categoryId !== undefined && { categoryId: body.categoryId }),
-        ...(body.notes && { notes: body.notes }),
-        ...(body.occasions && { occasions: body.occasions }),
-        ...(body.status && { status: body.status }),
-        ...(body.images && { images: body.images }),
-        ...(body.metaTitle !== undefined && { metaTitle: body.metaTitle }),
-        ...(body.metaDesc !== undefined && { metaDesc: body.metaDesc }),
-      },
-      include: { category: true },
-    });
+    try {
+      const input = productUpdateSchema.parse(request.body);
 
-    return reply.status(200).send({ success: true, data: product });
+      const product = await prisma.product.update({
+        where: { id },
+        data: {
+          ...(input.name !== undefined && { name: input.name }),
+          ...(input.description !== undefined && { description: input.description }),
+          ...(input.price !== undefined && { price: input.price }),
+          ...(input.comparePrice !== undefined && { comparePrice: input.comparePrice }),
+          ...(input.stock !== undefined && { stock: input.stock }),
+          ...(input.sku !== undefined && { sku: input.sku }),
+          ...(input.weight !== undefined && { weight: input.weight }),
+          ...(input.categoryId !== undefined && { categoryId: input.categoryId }),
+          ...(input.notes !== undefined && { notes: input.notes }),
+          ...(input.occasions !== undefined && { occasions: input.occasions }),
+          ...(input.status !== undefined && { status: input.status }),
+          ...(input.images !== undefined && { images: input.images }),
+          ...(input.metaTitle !== undefined && { metaTitle: input.metaTitle }),
+          ...(input.metaDesc !== undefined && { metaDesc: input.metaDesc }),
+        },
+        include: { category: true },
+      });
+
+      return reply.status(200).send({ success: true, data: product });
+    } catch (error) {
+      return handleRouteError(error, reply);
+    }
   });
 
   // ==================== ADMIN: DELETE PRODUCT ====================

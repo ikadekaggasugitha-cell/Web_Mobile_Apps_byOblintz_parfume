@@ -1,6 +1,8 @@
 import prisma from '../../config/database';
 import { redis } from '../../config/redis';
 import { nanoid } from 'nanoid';
+import { AppError } from '../../lib/errors';
+import { evaluatePromo } from '../../lib/promo';
 
 interface CartItem {
   productId: string;
@@ -26,12 +28,12 @@ export async function processCheckout(data: CheckoutData) {
   // 1. Ambil cart dari Redis
   const raw = await redis.get(`cart:${data.userId}`);
   if (!raw) {
-    throw new Error('Keranjang kosong');
+    throw new AppError('CHECKOUT_ERROR', 'Keranjang kosong', 400);
   }
 
   const cartItems: CartItem[] = JSON.parse(raw);
   if (cartItems.length === 0) {
-    throw new Error('Keranjang kosong');
+    throw new AppError('CHECKOUT_ERROR', 'Keranjang kosong', 400);
   }
 
   // 2. Ambil detail produk
@@ -47,7 +49,7 @@ export async function processCheckout(data: CheckoutData) {
   for (const item of cartItems) {
     const product = productMap.get(item.productId);
     if (!product) {
-      throw new Error(`Produk ${item.productId} tidak ditemukan`);
+      throw new AppError('CHECKOUT_ERROR', `Produk ${item.productId} tidak ditemukan`, 404);
     }
   }
 
@@ -92,28 +94,11 @@ export async function processCheckout(data: CheckoutData) {
       where: { code: data.promoCode.toUpperCase() },
     });
 
-    if (promo && promo.status === 'ACTIVE') {
-      if (!promo.startDate || new Date() >= promo.startDate) {
-        if (!promo.endDate || new Date() <= promo.endDate) {
-          if (!promo.usageLimit || promo.usedCount < promo.usageLimit) {
-            if (!promo.minOrder || subtotal >= Number(promo.minOrder)) {
-              if (promo.type === 'PERCENTAGE') {
-                discount = subtotal * (Number(promo.value) / 100);
-                if (promo.maxDiscount && discount > Number(promo.maxDiscount)) {
-                  discount = Number(promo.maxDiscount);
-                }
-              } else if (promo.type === 'FIXED') {
-                discount = Number(promo.value);
-              } else if (promo.type === 'FREE_SHIPPING') {
-                discount = shippingFee;
-              }
-
-              promoCodeId = promo.id;
-              promoRecord = promo;
-            }
-          }
-        }
-      }
+    const result = evaluatePromo(promo, subtotal, shippingFee);
+    if (result.applicable && promo) {
+      discount = result.discount;
+      promoCodeId = promo.id;
+      promoRecord = promo;
     }
   }
 
@@ -164,7 +149,7 @@ export async function processCheckout(data: CheckoutData) {
       });
 
       if (stockResult.count === 0) {
-        throw new Error(`Stok produk ${item.productId} tidak mencukupi`);
+        throw new AppError('INSUFFICIENT_STOCK', `Stok produk ${item.productId} tidak mencukupi`, 400);
       }
     }
 

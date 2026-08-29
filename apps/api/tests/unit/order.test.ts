@@ -278,5 +278,18 @@ describe('order module (TC-030 – TC-033)', () => {
 
       expect(res.statusCode).toBe(404);
     });
+
+    it('returns 400 VALIDATION_ERROR for an invalid status value (M2)', async () => {
+      const res = await app.inject({
+        method: 'PUT',
+        url: '/api/orders/admin/order-1/status',
+        headers: adminHeader(app),
+        payload: { status: 'NOT_A_STATUS' },
+      });
+
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error.code).toBe('VALIDATION_ERROR');
+      expect(prisma.order.update).not.toHaveBeenCalled();
+    });
   });
 });

@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import prisma from '../../config/database';
+import { handleRouteError } from '../../lib/errors';
 import { requireAuth, requireAdmin } from '../../middleware/auth';
 import { createReviewSchema, updateReviewSchema } from './review.schema';
 
@@ -128,13 +129,7 @@ export async function reviewRoutes(app: FastifyInstance) {
 
       return reply.status(201).send({ success: true, data: review });
     } catch (error) {
-      if (error instanceof Error) {
-        return reply.status(400).send({
-          success: false,
-          error: { code: 'VALIDATION_ERROR', message: error.message },
-        });
-      }
-      throw error;
+      return handleRouteError(error, reply);
     }
   });
 
@@ -173,13 +168,7 @@ export async function reviewRoutes(app: FastifyInstance) {
 
       return reply.status(200).send({ success: true, data: updated });
     } catch (error) {
-      if (error instanceof Error) {
-        return reply.status(400).send({
-          success: false,
-          error: { code: 'VALIDATION_ERROR', message: error.message },
-        });
-      }
-      throw error;
+      return handleRouteError(error, reply);
     }
   });
 

@@ -4,6 +4,8 @@ import { redis } from '../../config/redis';
 import { requireAuth } from '../../middleware/auth';
 import { checkoutSchema } from './checkout.schema';
 import { processCheckout } from './checkout.service';
+import { handleRouteError } from '../../lib/errors';
+import { evaluatePromo } from '../../lib/promo';
 
 export async function checkoutRoutes(app: FastifyInstance) {
   // ==================== PROCESS CHECKOUT ====================
@@ -30,13 +32,7 @@ export async function checkoutRoutes(app: FastifyInstance) {
         },
       });
     } catch (error) {
-      if (error instanceof Error) {
-        return reply.status(400).send({
-          success: false,
-          error: { code: 'CHECKOUT_ERROR', message: error.message },
-        });
-      }
-      throw error;
+      return handleRouteError(error, reply);
     }
   });
 
@@ -99,18 +95,9 @@ export async function checkoutRoutes(app: FastifyInstance) {
           where: { code: promoCode.toUpperCase() },
         });
 
-        if (promo && promo.status === 'ACTIVE') {
-          if (promo.type === 'PERCENTAGE') {
-            discount = subtotal * (Number(promo.value) / 100);
-            if (promo.maxDiscount && discount > Number(promo.maxDiscount)) {
-              discount = Number(promo.maxDiscount);
-            }
-          } else if (promo.type === 'FIXED') {
-            discount = Number(promo.value);
-          } else if (promo.type === 'FREE_SHIPPING') {
-            discount = shippingCost;
-          }
-        }
+        // Same validation/calculation as the actual checkout (M1) so the
+        // previewed discount matches what will be applied.
+        discount = evaluatePromo(promo, subtotal, shippingCost).discount;
       }
 
       return reply.status(200).send({
@@ -125,13 +112,7 @@ export async function checkoutRoutes(app: FastifyInstance) {
         },
       });
     } catch (error) {
-      if (error instanceof Error) {
-        return reply.status(400).send({
-          success: false,
-          error: { code: 'PREVIEW_ERROR', message: error.message },
-        });
-      }
-      throw error;
+      return handleRouteError(error, reply);
     }
   });
 }

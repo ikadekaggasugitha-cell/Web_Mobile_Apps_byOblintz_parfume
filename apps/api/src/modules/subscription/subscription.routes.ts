@@ -1,12 +1,8 @@
 import { FastifyInstance } from 'fastify';
 import prisma from '../../config/database';
+import { handleRouteError } from '../../lib/errors';
 import { requireAuth, requireAdmin } from '../../middleware/auth';
-import { z } from 'zod';
-
-const createSubscriptionSchema = z.object({
-  productId: z.string().uuid(),
-  frequency: z.enum(['MONTHLY', 'QUARTERLY']),
-});
+import { createSubscriptionSchema } from './subscription.schema';
 
 export async function subscriptionRoutes(app: FastifyInstance) {
   // ==================== GET USER SUBSCRIPTIONS ====================
@@ -116,13 +112,7 @@ export async function subscriptionRoutes(app: FastifyInstance) {
 
       return reply.status(201).send({ success: true, data: subscription });
     } catch (error) {
-      if (error instanceof Error) {
-        return reply.status(400).send({
-          success: false,
-          error: { code: 'VALIDATION_ERROR', message: error.message },
-        });
-      }
-      throw error;
+      return handleRouteError(error, reply);
     }
   });
 

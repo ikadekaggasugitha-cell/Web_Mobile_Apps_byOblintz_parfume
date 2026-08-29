@@ -4,9 +4,11 @@ import jwt from '@fastify/jwt';
 import rateLimit from '@fastify/rate-limit';
 import multipart from '@fastify/multipart';
 import helmet from '@fastify/helmet';
+import { ZodError } from 'zod';
 import { config } from './config';
 import prisma from './config/database';
 import { redis } from './config/redis';
+import { AppError } from './lib/errors';
 import { authRoutes } from './modules/auth/auth.routes';
 import { productRoutes } from './modules/product/product.routes';
 import { categoryRoutes } from './modules/category/category.routes';
@@ -35,6 +37,25 @@ const server = Fastify({
 // ==================== GLOBAL ERROR HANDLER ====================
 server.setErrorHandler((error, request, reply) => {
   server.log.error(error);
+
+  // Intended application errors (safe to surface)
+  if (error instanceof AppError) {
+    return reply.status(error.statusCode).send({
+      success: false,
+      error: { code: error.code, message: error.message },
+    });
+  }
+
+  // Zod schema validation
+  if (error instanceof ZodError) {
+    return reply.status(400).send({
+      success: false,
+      error: {
+        code: 'VALIDATION_ERROR',
+        message: error.errors.map((e) => e.message).join('; '),
+      },
+    });
+  }
 
   // Prisma errors
   if (error.code === 'P2002') {

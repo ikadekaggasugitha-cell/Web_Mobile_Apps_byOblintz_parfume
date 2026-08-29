@@ -96,6 +96,7 @@ describe('cart module (TC-020 – TC-024)', () => {
       });
 
       expect(res.statusCode).toBe(200);
+      expect(res.json().data.totalItems).toBe(2); // L1: real total, not hardcoded 0
       expect(redis.set).toHaveBeenCalledWith(
         `cart:${USER_ID}`,
         expect.stringContaining(PID),
@@ -171,6 +172,7 @@ describe('cart module (TC-020 – TC-024)', () => {
       });
 
       expect(res.statusCode).toBe(200);
+      expect(res.json().data.totalItems).toBe(5); // 2 existing + 3 added
       const saved = JSON.parse(redis.set.mock.calls.find((c) => c[0] === `cart:${USER_ID}`)![1] as string);
       expect(saved[0].quantity).toBe(5);
       expect(saved[0].giftWrap).toBe(true);

@@ -496,7 +496,9 @@ describe('auth module (TC-001 – TC-005)', () => {
       expect(res.json().error.code).toBe('RATE_LIMIT');
     });
 
-    it('returns 400 VALIDATION_ERROR when register hits a datastore error', async () => {
+    it('does NOT mask an unexpected datastore error as 400 on register (→ 500)', async () => {
+      // Unexpected errors must propagate to the global handler (generic 500),
+      // not be swallowed as VALIDATION_ERROR with a leaked message.
       prisma.user.findUnique.mockRejectedValue(new Error('db down'));
 
       const res = await app.inject({
@@ -505,11 +507,10 @@ describe('auth module (TC-001 – TC-005)', () => {
         payload: { email: USER.email, password: 'password123', name: 'Budi' },
       });
 
-      expect(res.statusCode).toBe(400);
-      expect(res.json().error.code).toBe('VALIDATION_ERROR');
+      expect(res.statusCode).toBe(500);
     });
 
-    it('returns 400 VALIDATION_ERROR when login hits a datastore error', async () => {
+    it('does NOT mask an unexpected datastore error as 400 on login (→ 500)', async () => {
       prisma.user.findUnique.mockRejectedValue(new Error('db down'));
 
       const res = await app.inject({
@@ -518,8 +519,7 @@ describe('auth module (TC-001 – TC-005)', () => {
         payload: { email: USER.email, password: 'password123' },
       });
 
-      expect(res.statusCode).toBe(400);
-      expect(res.json().error.code).toBe('VALIDATION_ERROR');
+      expect(res.statusCode).toBe(500);
     });
 
     it('GET /me returns 404 when the user no longer exists', async () => {
