@@ -163,3 +163,94 @@ export interface PaginatedResponse<T> {
     totalPages: number;
   };
 }
+
+export interface Pagination {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+}
+
+export interface ProductSummary {
+  id: string;
+  name: string;
+  slug: string;
+  price: number;
+  comparePrice?: number | null;
+  images: string[];
+  category?: { name: string };
+  _count?: { reviews: number };
+}
+
+export interface CartData {
+  items: CartItem[];
+  summary: {
+    subtotal: number;
+    totalItems: number;
+  };
+}
+
+export interface AdminUser {
+  id: string;
+  name: string;
+  email: string;
+  phone?: string;
+  role: UserRole;
+}
+
+export interface Subscription {
+  id: string;
+  frequency: SubscriptionFrequency;
+  status: SubscriptionStatus;
+  nextDelivery?: string;
+  lastDelivery?: string | null;
+  createdAt: string;
+  user?: { id: string; name: string; email: string };
+  product: {
+    id: string;
+    name: string;
+    price: number;
+    images: string[];
+    category: { name: string };
+  };
+}
+
+export interface AdminSubscription {
+  id: string;
+  frequency: SubscriptionFrequency;
+  status: SubscriptionStatus;
+  nextDelivery: string;
+  createdAt: string;
+  user: { id: string; name: string; email: string };
+  product: { id: string; name: string; price: number };
+}
+
+export interface AdminOrder {
+  id: string;
+  orderNumber: string;
+  status: OrderStatus;
+  totalAmount: number;
+  createdAt: string;
+  user: { name: string; email: string };
+  items: { product: { name: string }; quantity: number }[];
+}
+
+export interface DashboardStats {
+  stats: {
+    totalOrders: number;
+    ordersThisMonth: number;
+    totalProducts: number;
+    totalUsers: number;
+    totalSubscriptions: number;
+    revenueThisMonth: number;
+  };
+  recentOrders: any[];
+  topProducts: {
+    name: string;
+    price: number;
+    totalSold: number;
+    orderCount: number;
+  }[];
+}
+
+export type BadgeVariant = 'default' | 'secondary' | 'outline' | 'success' | 'warning' | 'danger' | 'info';
