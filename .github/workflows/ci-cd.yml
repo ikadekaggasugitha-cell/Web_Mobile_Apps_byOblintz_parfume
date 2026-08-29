@@ -8,6 +8,7 @@ on:
 
 env:
   NODE_VERSION: '20'
+  PNPM_VERSION: '8.15.0'
 
 jobs:
   # ==================== LINT & TYPECHECK ====================
@@ -17,26 +18,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # pnpm must be installed BEFORE setup-node so `cache: pnpm` works.
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 8.15.0
-
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
       - name: Type check API
-        run: pnpm --filter oblintz-api typecheck
+        run: pnpm --filter @oblintz/api typecheck
 
       - name: Type check Web
-        run: pnpm --filter oblintz-web typecheck
+        run: pnpm --filter @oblintz/web typecheck
 
       - name: Type check Admin
-        run: pnpm --filter oblintz-admin typecheck
+        run: pnpm --filter @oblintz/admin typecheck
 
   # ==================== TEST ====================
   test:
@@ -61,37 +63,40 @@ jobs:
         image: redis:7
         ports:
           - 6379:6379
+    env:
+      DATABASE_URL: postgresql://test:test@localhost:5432/oblintz_test
+      DATABASE_URL_TEST: postgresql://test:test@localhost:5432/oblintz_test
+      REDIS_URL: redis://localhost:6379
+      REDIS_URL_TEST: redis://localhost:6379
+      JWT_ACCESS_SECRET: test-access-secret-key-min-32-chars!!
+      JWT_REFRESH_SECRET: test-refresh-secret-key-min-32-chars!!
     steps:
       - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
 
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 8.15.0
-
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Setup env
+      - name: Prisma generate & migrate test DB
         run: |
-          cd apps/api
-          cp .env.example .env || echo 'DATABASE_URL=postgresql://test:test@localhost:5432/oblintz_test' > .env
-          echo 'REDIS_URL=redis://localhost:6379' >> .env
-          echo 'JWT_ACCESS_SECRET=test-access-secret-key-min-32-chars!!' >> .env
-          echo 'JWT_REFRESH_SECRET=test-refresh-secret-key-min-32-chars!!' >> .env
+          pnpm --filter @oblintz/api exec prisma generate
+          pnpm --filter @oblintz/api exec prisma migrate deploy
 
-      - name: Prisma generate
-        run: pnpm --filter oblintz-api prisma generate
+      # Unit tests run once with coverage; thresholds (vitest.config.ts) fail on regression.
+      - name: Unit tests + coverage gate
+        run: pnpm --filter @oblintz/api test:coverage
 
-      - name: Run tests
-        run: pnpm --filter oblintz-api test
-        env:
-          DATABASE_URL: postgresql://test:test@localhost:5432/oblintz_test
-          REDIS_URL: redis://localhost:6379
+      # Integration tests run against the real Postgres service.
+      - name: Integration tests
+        run: pnpm --filter @oblintz/api test:integration
 
   # ==================== BUILD ====================
   build:
@@ -101,26 +106,29 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 8.15.0
-
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Prisma generate
+        run: pnpm --filter @oblintz/api exec prisma generate
+
       - name: Build API
-        run: pnpm --filter oblintz-api build
+        run: pnpm --filter @oblintz/api build
 
       - name: Build Web
-        run: pnpm --filter oblintz-web build
+        run: pnpm --filter @oblintz/web build
 
       - name: Build Admin
-        run: pnpm --filter oblintz-admin build
+        run: pnpm --filter @oblintz/admin build
 
   # ==================== DEPLOY ====================
   deploy:
@@ -142,10 +150,10 @@ jobs:
             cd /var/www/oblintz
             git pull origin main
             pnpm install --frozen-lockfile
-            pnpm --filter oblintz-api prisma generate
-            pnpm --filter oblintz-api prisma migrate deploy
-            pnpm --filter oblintz-api build
-            pnpm --filter oblintz-web build
-            pnpm --filter oblintz-admin build
+            pnpm --filter @oblintz/api exec prisma generate
+            pnpm --filter @oblintz/api exec prisma migrate deploy
+            pnpm --filter @oblintz/api build
+            pnpm --filter @oblintz/web build
+            pnpm --filter @oblintz/admin build
             pm2 restart ecosystem.config.js
             echo "Deployment completed at $(date)"
