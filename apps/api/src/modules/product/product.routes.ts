@@ -151,15 +151,19 @@ export async function productRoutes(app: FastifyInstance) {
   // ==================== GET PRODUCT BY SLUG ====================
   app.get('/:slug', async (request, reply) => {
     const { slug } = request.params as { slug: string };
+    const { reviewPage = '1', reviewLimit = '5' } = request.query as {
+      reviewPage?: string;
+      reviewLimit?: string;
+    };
+
+    const reviewPageNum = Math.max(1, parseInt(reviewPage));
+    const reviewLimitNum = Math.min(50, Math.max(1, parseInt(reviewLimit)));
+    const reviewSkip = (reviewPageNum - 1) * reviewLimitNum;
 
     const product = await prisma.product.findUnique({
       where: { slug },
       include: {
-        category: true,
-        reviews: {
-          include: { user: { select: { id: true, name: true, avatar: true } } },
-          orderBy: { createdAt: 'desc' as const },
-        },
+        category: { select: { id: true, name: true, slug: true } },
         _count: { select: { reviews: true } },
       },
     });
@@ -171,16 +175,41 @@ export async function productRoutes(app: FastifyInstance) {
       });
     }
 
+    // Fetch reviews separately with pagination
+    const [reviews, reviewTotal] = await Promise.all([
+      prisma.review.findMany({
+        where: { productId: product.id, status: 'APPROVED' },
+        orderBy: { createdAt: 'desc' },
+        skip: reviewSkip,
+        take: reviewLimitNum,
+        include: {
+          user: { select: { id: true, name: true, avatar: true } },
+        },
+      }),
+      prisma.review.count({
+        where: { productId: product.id, status: 'APPROVED' },
+      }),
+    ]);
+
     // Hitung rata-rata rating
-    const avgRating = product.reviews.length > 0
-      ? product.reviews.reduce((sum: any, r: any) => sum + r.rating, 0) / product.reviews.length
-      : 0;
+    const stats = await prisma.review.aggregate({
+      where: { productId: product.id, status: 'APPROVED' },
+      _avg: { rating: true },
+      _count: { rating: true },
+    });
 
     return reply.status(200).send({
       success: true,
       data: {
         ...product,
-        avgRating: Math.round(avgRating * 10) / 10,
+        avgRating: stats._avg.rating ? Math.round(stats._avg.rating * 10) / 10 : 0,
+        reviews,
+        reviewPagination: {
+          page: reviewPageNum,
+          limit: reviewLimitNum,
+          total: reviewTotal,
+          totalPages: Math.ceil(reviewTotal / reviewLimitNum),
+        },
       },
     });
   });

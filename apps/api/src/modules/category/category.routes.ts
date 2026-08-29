@@ -25,6 +25,14 @@ export async function categoryRoutes(app: FastifyInstance) {
   // ==================== GET CATEGORY BY SLUG ====================
   app.get('/:slug', async (request, reply) => {
     const { slug } = request.params as { slug: string };
+    const { page = '1', limit = '12' } = request.query as {
+      page?: string;
+      limit?: string;
+    };
+
+    const pageNum = Math.max(1, parseInt(page));
+    const limitNum = Math.min(50, Math.max(1, parseInt(limit)));
+    const skip = (pageNum - 1) * limitNum;
 
     const category = await prisma.category.findUnique({
       where: { slug },
@@ -32,16 +40,26 @@ export async function categoryRoutes(app: FastifyInstance) {
         products: {
           where: { status: 'ACTIVE' },
           orderBy: { createdAt: 'desc' },
-          include: {
+          skip,
+          take: limitNum,
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            price: true,
+            comparePrice: true,
+            images: true,
+            status: true,
+            createdAt: true,
             _count: { select: { reviews: true } },
           },
         },
         children: {
           include: {
-            products: { where: { status: 'ACTIVE' } },
             _count: { select: { products: true } },
           },
         },
+        _count: { select: { products: true } },
       },
     });
 
@@ -52,7 +70,22 @@ export async function categoryRoutes(app: FastifyInstance) {
       });
     }
 
-    return reply.status(200).send({ success: true, data: category });
+    const totalProducts = await prisma.product.count({
+      where: { categoryId: category.id, status: 'ACTIVE' },
+    });
+
+    return reply.status(200).send({
+      success: true,
+      data: {
+        ...category,
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          total: totalProducts,
+          totalPages: Math.ceil(totalProducts / limitNum),
+        },
+      },
+    });
   });
 
   // ==================== ADMIN: LIST ALL CATEGORIES ====================

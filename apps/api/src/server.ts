@@ -92,6 +92,23 @@ server.setNotFoundHandler((request, reply) => {
   });
 });
 
+// Request time logging
+server.addHook('onRequest', async (request) => {
+  (request as any).startTime = Date.now();
+  if (!request.id) {
+    request.id = crypto.randomUUID();
+  }
+});
+
+server.addHook('onResponse', async (request, reply) => {
+  const duration = (request as any).startTime ? Date.now() - (request as any).startTime : 0;
+  reply.header('X-Request-Id', request.id);
+  const logLevel = duration > 1000 ? 'warn' : 'info';
+  if (logLevel === 'warn') {
+    server.log.warn({ requestId: request.id, method: request.method, url: request.url, duration }, 'Slow request');
+  }
+});
+
 async function bootstrap() {
   // Register plugins
   await server.register(cors, config.cors);
@@ -115,13 +132,48 @@ async function bootstrap() {
     },
   });
 
+  // Set body size limit for JSON requests (1MB)
+  server.addContentTypeParser('application/json', { parseAs: 'string', bodyLimit: 1048576 }, (req, body, done) => {
+    try {
+      const json = JSON.parse(body as string);
+      done(null, json);
+    } catch (err) {
+      done(err as Error, undefined);
+    }
+  });
+
   // Decorators
   server.decorate('prisma', prisma);
   server.decorate('redis', redis);
 
-  // Health check
+  // Health check (deep - verifikasi DB dan Redis)
   server.get('/health', async () => {
-    return { status: 'ok', timestamp: new Date().toISOString() };
+    const checks = {
+      database: false,
+      redis: false,
+    };
+
+    try {
+      await prisma.$queryRaw`SELECT 1`;
+      checks.database = true;
+    } catch {
+      // Database connection failed
+    }
+
+    try {
+      await redis.ping();
+      checks.redis = true;
+    } catch {
+      // Redis connection failed
+    }
+
+    const status = checks.database && checks.redis ? 'ok' : 'degraded';
+
+    return {
+      status,
+      timestamp: new Date().toISOString(),
+      checks,
+    };
   });
 
   // Register routes

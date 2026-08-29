@@ -18,7 +18,7 @@ export async function reviewRoutes(app: FastifyInstance) {
 
     const where = { productId, status: 'APPROVED' as const };
 
-    const [reviews, total, stats] = await Promise.all([
+    const [reviews, total, stats, distributionResult] = await Promise.all([
       prisma.review.findMany({
         where,
         orderBy: { createdAt: 'desc' },
@@ -34,16 +34,17 @@ export async function reviewRoutes(app: FastifyInstance) {
         _avg: { rating: true },
         _count: { rating: true },
       }),
+      prisma.review.groupBy({
+        by: ['rating'],
+        where: { productId, status: 'APPROVED' },
+        _count: { rating: true },
+      }),
     ]);
 
-    // Rating distribution
+    // Build distribution from groupBy result
     const distribution: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
-    const allReviews = await prisma.review.findMany({
-      where: { productId, status: 'APPROVED' },
-      select: { rating: true },
-    });
-    allReviews.forEach((r: any) => {
-      distribution[r.rating] = (distribution[r.rating] || 0) + 1;
+    distributionResult.forEach((item) => {
+      distribution[item.rating] = item._count.rating;
     });
 
     return reply.status(200).send({
