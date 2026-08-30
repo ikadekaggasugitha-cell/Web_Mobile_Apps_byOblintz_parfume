@@ -1,8 +1,7 @@
 import type { Metadata } from 'next';
-import { Inter, Cormorant_Garamond } from 'next/font/google';
+import { Inter, Fraunces } from 'next/font/google';
 import './globals.css';
-import { Header } from '@/components/layout/Header';
-import { Footer } from '@/components/layout/Footer';
+import { SiteShell } from '@/components/layout/SiteShell';
 
 const inter = Inter({
   subsets: ['latin'],
@@ -10,9 +9,11 @@ const inter = Inter({
   display: 'swap',
 });
 
-const cormorant = Cormorant_Garamond({
+// Fraunces — a high-contrast, slightly flared "heritage" serif that carries the
+// editorial display voice across the whole site. Variable weight + true italic.
+const fraunces = Fraunces({
   subsets: ['latin'],
-  weight: ['400', '500', '600', '700'],
+  style: ['normal', 'italic'],
   variable: '--font-serif',
   display: 'swap',
 });
@@ -75,16 +76,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="id" className={`${inter.variable} ${cormorant.variable}`}>
+    <html lang="id" className={`${inter.variable} ${fraunces.variable}`}>
       <body className="font-sans">
         <a href="#main-content" className="sr-only focus:not-sr-only focus:absolute focus:z-[999] focus:bg-white focus:px-4 focus:py-2 focus:font-medium focus:text-primary-600 focus:shadow-lg">
           Skip to content
         </a>
-        <div className="flex min-h-screen flex-col">
-          <Header />
-          <main id="main-content" className="flex-1">{children}</main>
-          <Footer />
-        </div>
+        <SiteShell>{children}</SiteShell>
       </body>
     </html>
   );

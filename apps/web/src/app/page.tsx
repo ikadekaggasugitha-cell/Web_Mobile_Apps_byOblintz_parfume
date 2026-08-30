@@ -1,8 +1,10 @@
 import { Hero } from '@/components/home/Hero';
-import { ValueProps } from '@/components/home/ValueProps';
 import { FeaturedCollections } from '@/components/home/FeaturedCollections';
+import { StatsBar } from '@/components/home/StatsBar';
+import { ValueProps } from '@/components/home/ValueProps';
 import { Bestsellers } from '@/components/home/Bestsellers';
 import { BrandStory } from '@/components/home/BrandStory';
+import { Testimonials } from '@/components/home/Testimonials';
 import { QuizCta } from '@/components/home/QuizCta';
 import { Newsletter } from '@/components/home/Newsletter';
 import { JsonLd } from '@/components/seo/JsonLd';
@@ -40,10 +42,12 @@ export default function Home() {
       <JsonLd data={organizationJsonLd} />
       <JsonLd data={websiteJsonLd} />
       <Hero />
-      <ValueProps />
       <FeaturedCollections />
+      <StatsBar />
+      <ValueProps />
       <Bestsellers />
       <BrandStory />
+      <Testimonials />
       <QuizCta />
       <Newsletter />
     </>

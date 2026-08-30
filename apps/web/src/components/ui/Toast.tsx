@@ -38,10 +38,10 @@ export function ToastContainer({ toasts }: { toasts: ToastItem[] }) {
           role={toast.type === 'error' ? 'alert' : 'status'}
           aria-live={toast.type === 'error' ? 'assertive' : 'polite'}
           className={cn(
-            'animate-in slide-in-from-right-5 rounded-lg px-4 py-3 text-sm font-medium text-white shadow-lg',
-            toast.type === 'success' && 'bg-green-500',
+            'animate-in slide-in-from-right-5 rounded-[10px] px-4 py-3 text-sm font-medium text-white shadow-card',
+            toast.type === 'success' && 'bg-green-600',
             toast.type === 'error' && 'bg-red-500',
-            toast.type === 'info' && 'bg-blue-500'
+            toast.type === 'info' && 'bg-espresso'
           )}
         >
           {toast.message}

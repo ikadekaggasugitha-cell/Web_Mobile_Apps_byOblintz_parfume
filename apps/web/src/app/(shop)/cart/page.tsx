@@ -2,15 +2,16 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import Image from 'next/image';
 import Link from 'next/link';
 import api from '@/lib/api';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, resolveImageUrl } from '@/lib/utils';
+import { ProductImage } from '@/components/product/ProductImage';
 import { Button } from '@/components/ui/Button';
 import { LoadingPage } from '@/components/ui/Loading';
 import { Card } from '@/components/ui/Card';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
+import { PageHeader } from '@/components/layout/PageHeader';
 
 interface CartItem {
   id: string;
@@ -165,11 +166,10 @@ export default function CartPage() {
   if (isLoading) return <LoadingPage />;
   if (!cart || cart.items.length === 0) {
     return (
-      <div className="mx-auto max-w-7xl px-4 py-16 text-center">
-        <div className="text-6xl mb-4">🛒</div>
-        <h1 className="text-2xl font-bold text-gray-900">Keranjang Kosong</h1>
-        <p className="mt-2 text-gray-500">
-          Belum ada produk di keranjang Anda
+      <div className="mx-auto max-w-7xl px-4 py-24 text-center sm:px-6">
+        <h1 className="font-serif text-3xl font-medium text-espresso">Keranjang Kosong</h1>
+        <p className="mt-2 text-warmgray">
+          Belum ada parfum di keranjang Anda.
         </p>
         <Link href="/products">
           <Button className="mt-6">Mulai Belanja</Button>
@@ -180,10 +180,9 @@ export default function CartPage() {
 
   if (isError) {
     return (
-      <div className="mx-auto max-w-7xl px-4 py-16 text-center">
-        <div className="text-6xl mb-4">⚠️</div>
-        <h1 className="text-2xl font-bold text-gray-900">Gagal Memuat Keranjang</h1>
-        <p className="mt-2 text-gray-500">
+      <div className="mx-auto max-w-7xl px-4 py-24 text-center sm:px-6">
+        <h1 className="font-serif text-3xl font-medium text-espresso">Gagal Memuat Keranjang</h1>
+        <p className="mt-2 text-warmgray">
           Terjadi kesalahan saat memuat data keranjang Anda
         </p>
         <Button className="mt-6" onClick={() => { setIsError(false); refreshCart(); }}>
@@ -194,7 +193,7 @@ export default function CartPage() {
   }
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-8">
+    <div className="mx-auto max-w-7xl px-4 py-14 sm:px-6">
       <ToastContainer toasts={toasts} />
       <ConfirmDialog
         isOpen={deleteConfirm.open}
@@ -206,7 +205,7 @@ export default function CartPage() {
         variant="danger"
       />
 
-      <h1 className="mb-8 text-3xl font-bold text-gray-900">Keranjang Belanja</h1>
+      <PageHeader eyebrow="Keranjang" title="Keranjang Belanja" className="mb-10" />
 
       <div className="grid gap-8 lg:grid-cols-3">
         {/* Cart Items */}
@@ -214,33 +213,28 @@ export default function CartPage() {
           {cart.items.map((item) => (
             <Card key={item.id} className="p-4">
               <div className="flex gap-4">
-                <div className="h-24 w-24 flex-shrink-0 overflow-hidden rounded-lg bg-gray-100">
-                  {item.product.images?.[0] ? (
-                    <Image
-                      src={item.product.images[0]}
-                      alt={item.product.name}
-                      width={96}
-                      height={96}
-                      className="h-full w-full object-cover"
-                    />
-                  ) : (
-                    <div className="flex h-full items-center justify-center text-gray-400">
-                      📷
-                    </div>
-                  )}
+                <div className="h-24 w-24 flex-shrink-0 overflow-hidden rounded-lg border border-line bg-sand">
+                  <ProductImage
+                    src={resolveImageUrl(item.product.images?.[0])}
+                    alt={item.product.name}
+                    width={96}
+                    height={96}
+                    fallbackClassName="text-sm"
+                    className="h-full w-full object-cover"
+                  />
                 </div>
 
                 <div className="flex-1">
                   <Link
                     href={`/products/${item.product.slug}`}
-                    className="font-medium text-gray-900 hover:text-primary-500"
+                    className="font-serif text-lg font-medium text-espresso transition-colors hover:text-primary-700"
                   >
                     {item.product.name}
                   </Link>
-                  <p className="text-sm text-gray-500">
+                  <p className="text-xs uppercase tracking-luxe text-gold-600">
                     {item.product.category}
                   </p>
-                  <p className="mt-1 font-semibold text-gray-900">
+                  <p className="mt-1.5 text-sm font-semibold text-espresso">
                     {formatCurrency(item.product.price)}
                   </p>
                 </div>
@@ -248,21 +242,21 @@ export default function CartPage() {
                 <div className="flex flex-col items-end justify-between">
                   <button
                     onClick={() => setDeleteConfirm({ open: true, productId: item.id })}
-                    className="text-sm text-red-500 hover:underline"
+                    className="text-xs font-medium uppercase tracking-luxe text-warmgray transition-colors hover:text-red-600"
                   >
                     Hapus
                   </button>
-                  <div className="flex items-center rounded-lg border border-gray-300">
+                  <div className="flex items-center rounded-[10px] border border-line">
                     <button
                       onClick={() =>
                         updateQuantity(item.id, Math.max(1, item.quantity - 1))
                       }
-                      className="px-2 py-1 text-gray-600 hover:bg-gray-50"
+                      className="px-3 py-1.5 text-espresso transition-colors hover:bg-sand"
                       aria-label="Kurangi jumlah"
                     >
-                      -
+                      −
                     </button>
-                    <span className="px-3 py-1 text-sm font-medium">
+                    <span className="px-3 py-1.5 text-sm font-medium text-espresso">
                       {item.quantity}
                     </span>
                     <button
@@ -272,7 +266,7 @@ export default function CartPage() {
                           Math.min(item.product.stock, item.quantity + 1)
                         )
                       }
-                      className="px-2 py-1 text-gray-600 hover:bg-gray-50"
+                      className="px-3 py-1.5 text-espresso transition-colors hover:bg-sand"
                       aria-label="Tambah jumlah"
                     >
                       +
@@ -282,17 +276,17 @@ export default function CartPage() {
               </div>
 
               {/* Gift Wrap Toggle */}
-              <div className="mt-3 flex items-center gap-2 text-sm">
+              <label className="mt-4 flex cursor-pointer items-center gap-2 border-t border-line pt-3 text-sm">
                 <input
                   type="checkbox"
                   checked={item.giftWrap}
                   onChange={(e) => {
                     toggleGiftWrap(item.id, e.target.checked);
                   }}
-                  className="rounded border-gray-300"
+                  className="h-4 w-4 rounded border-line accent-primary-600"
                 />
-                <span className="text-gray-600">🎁 Gift Wrapping (+Rp 15.000)</span>
-              </div>
+                <span className="text-warmgray">Tambahkan Gift Wrapping (+Rp 15.000)</span>
+              </label>
             </Card>
           ))}
         </div>
@@ -300,23 +294,23 @@ export default function CartPage() {
         {/* Summary */}
         <div>
           <Card className="sticky top-24 p-6">
-            <h2 className="mb-4 text-lg font-semibold text-gray-900">
+            <h2 className="mb-5 font-serif text-xl font-medium text-espresso">
               Ringkasan Belanja
             </h2>
 
             <div className="space-y-3 text-sm">
               <div className="flex justify-between">
-                <span className="text-gray-600">
+                <span className="text-warmgray">
                   Subtotal ({cart.summary.totalItems} item)
                 </span>
-                <span className="font-medium">
+                <span className="font-medium text-espresso">
                   {formatCurrency(cart.summary.subtotal)}
                 </span>
               </div>
 
               <div className="flex justify-between">
-                <span className="text-gray-600">Ongkos Kirim</span>
-                <span className="font-medium">
+                <span className="text-warmgray">Ongkos Kirim</span>
+                <span className="font-medium text-espresso">
                   {shippingCost === 0
                     ? 'GRATIS'
                     : formatCurrency(shippingCost)}
@@ -324,7 +318,7 @@ export default function CartPage() {
               </div>
 
               {promoDiscount > 0 && (
-                <div className="flex justify-between text-green-600">
+                <div className="flex justify-between text-green-700">
                   <span>Diskon Promo</span>
                   <span className="font-medium">
                     -{formatCurrency(promoDiscount)}
@@ -332,23 +326,25 @@ export default function CartPage() {
                 </div>
               )}
 
-              <hr className="border-gray-200" />
+              <hr className="border-line" />
 
-              <div className="flex justify-between text-base font-semibold">
-                <span>Total</span>
-                <span>{formatCurrency(total)}</span>
+              <div className="flex items-baseline justify-between">
+                <span className="text-sm font-medium text-espresso">Total</span>
+                <span className="font-serif text-xl font-medium text-espresso">
+                  {formatCurrency(total)}
+                </span>
               </div>
             </div>
 
             {/* Promo Code */}
-            <div className="mt-4">
+            <div className="mt-5">
               <div className="flex gap-2">
                 <input
                   type="text"
                   value={promoCode}
                   onChange={(e) => setPromoCode(e.target.value)}
                   placeholder="Kode promo"
-                  className="h-10 flex-1 rounded-lg border border-gray-300 px-3 text-sm focus:border-primary-500 focus:outline-none"
+                  className="h-11 flex-1 rounded-[10px] border border-line bg-white px-3.5 text-sm text-espresso placeholder:text-warmgray/60 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-500/25"
                 />
                 <Button
                   variant="outline"
@@ -362,14 +358,14 @@ export default function CartPage() {
             </div>
 
             {shippingCost > 0 && (
-              <p className="mt-3 text-xs text-gray-500">
+              <p className="mt-3 text-xs text-warmgray">
                 Gratis ongkir untuk pembelian di atas Rp 500.000
               </p>
             )}
 
             <Link href="/checkout">
-              <Button className="mt-4 w-full" size="lg">
-                Checkout
+              <Button className="mt-5 w-full" size="lg">
+                Lanjut ke Checkout
               </Button>
             </Link>
           </Card>

@@ -37,7 +37,7 @@ export function Modal({ isOpen, onClose, children, className }: ModalProps) {
         />
         <div
           className={cn(
-            'relative z-50 w-full max-w-md rounded-xl bg-white p-6 shadow-xl',
+            'relative z-50 w-full max-w-md rounded-2xl border border-line bg-ivory p-6 shadow-card',
             className
           )}
         >
@@ -55,11 +55,11 @@ interface ModalHeaderProps {
 export function ModalHeader({ title, onClose }: ModalHeaderProps) {
   return (
     <div className="mb-4 flex items-center justify-between">
-      <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
+      <h2 className="font-serif text-xl font-medium text-espresso">{title}</h2>
       {onClose && (
         <button
           onClick={onClose}
-          className="text-gray-400 hover:text-gray-600"
+          className="text-warmgray transition-colors hover:text-espresso"
           aria-label="Tutup"
         >
           ✕

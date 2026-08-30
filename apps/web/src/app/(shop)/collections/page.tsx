@@ -11,6 +11,7 @@ import { Modal, ModalHeader } from '@/components/ui/Modal';
 import { ProductCard } from '@/components/product/ProductCard';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
+import { PageHeader } from '@/components/layout/PageHeader';
 
 interface Collection {
   id: string;
@@ -116,17 +117,16 @@ export default function CollectionsPage() {
   if (isLoading) return <LoadingPage />;
   if (isError) {
     return (
-      <div className="mx-auto max-w-7xl px-4 py-16 text-center">
-        <span className="text-6xl">⚠️</span>
-        <h1 className="mt-4 text-2xl font-bold text-gray-900">Gagal Memuat Koleksi</h1>
-        <p className="mt-2 text-gray-500">Terjadi kesalahan saat memuat data koleksi Anda</p>
+      <div className="mx-auto max-w-7xl px-4 py-20 text-center">
+        <h1 className="font-serif text-3xl font-medium text-espresso">Gagal Memuat Koleksi</h1>
+        <p className="mt-2 text-warmgray">Terjadi kesalahan saat memuat data koleksi Anda</p>
         <Button className="mt-6" onClick={() => { setIsError(false); refreshCollections(); }}>Coba Lagi</Button>
       </div>
     );
   }
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-8">
+    <div className="mx-auto max-w-7xl px-4 py-14 sm:px-6">
       <ToastContainer toasts={toasts} />
       <ConfirmDialog
         isOpen={deleteConfirm.open}
@@ -138,26 +138,24 @@ export default function CollectionsPage() {
         variant="danger"
       />
 
-      <div className="mb-8 flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">Koleksiku</h1>
-          <p className="mt-1 text-gray-500">
-            Koleksi parfum favoritmu
-          </p>
-        </div>
-        <Button onClick={() => setShowCreateModal(true)}>
+      <div className="mb-10 flex flex-col gap-6 border-b border-line pb-8 sm:flex-row sm:items-end sm:justify-between">
+        <PageHeader
+          eyebrow="Tersimpan"
+          title="Koleksiku"
+          description="Kurasi pribadi parfum favorit Anda."
+        />
+        <Button onClick={() => setShowCreateModal(true)} className="shrink-0">
           + Koleksi Baru
         </Button>
       </div>
 
       {collections.length === 0 ? (
-        <div className="py-16 text-center">
-          <span className="text-6xl">📁</span>
-          <h2 className="mt-4 text-xl font-semibold text-gray-900">
+        <div className="py-20 text-center">
+          <h2 className="font-serif text-2xl font-medium text-espresso">
             Belum Ada Koleksi
           </h2>
-          <p className="mt-2 text-gray-500">
-            Buat koleksi untuk menyimpan parfum favoritmu
+          <p className="mt-2 text-warmgray">
+            Buat koleksi untuk menyimpan parfum favorit Anda.
           </p>
           <Button className="mt-6" onClick={() => setShowCreateModal(true)}>
             Buat Koleksi Pertama
@@ -169,10 +167,10 @@ export default function CollectionsPage() {
             <div key={collection.id}>
               <div className="mb-4 flex items-center justify-between">
                 <div>
-                  <h2 className="text-xl font-semibold text-gray-900">
+                  <h2 className="font-serif text-xl font-medium text-espresso">
                     {collection.name}
                   </h2>
-                  <p className="text-sm text-gray-500">
+                  <p className="text-sm text-warmgray">
                     {collection.items.length} produk
                   </p>
                 </div>
@@ -194,7 +192,7 @@ export default function CollectionsPage() {
               </div>
 
               {collection.items.length === 0 ? (
-                <Card className="p-8 text-center text-gray-500">
+                <Card className="p-8 text-center text-warmgray">
                   Belum ada produk di koleksi ini
                 </Card>
               ) : (
@@ -218,7 +216,7 @@ export default function CollectionsPage() {
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
             placeholder="Nama koleksi..."
-            className="h-10 w-full rounded-lg border border-gray-300 px-3 text-sm focus:border-primary-500 focus:outline-none"
+            className="h-11 w-full rounded-[10px] border border-line bg-white px-3.5 text-sm text-espresso placeholder:text-warmgray/60 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-500/25"
             autoFocus
           />
           <div className="flex justify-end gap-2">

@@ -1,46 +1,98 @@
 import Link from 'next/link';
 
+const SHOP_LINKS = [
+  { href: '/products', label: 'Semua Koleksi' },
+  { href: '/categories', label: 'Kategori' },
+  { href: '/quiz', label: 'Quiz Parfum' },
+];
+
+const ACCOUNT_LINKS = [
+  { href: '/login', label: 'Masuk' },
+  { href: '/register', label: 'Daftar' },
+  { href: '/account/orders', label: 'Pesanan Saya' },
+];
+
 export function Footer() {
   return (
-    <footer className="border-t bg-gray-50">
-      <div className="container mx-auto px-4 py-12">
-        <div className="grid grid-cols-1 gap-8 md:grid-cols-4">
-          <div>
-            <h3 className="mb-4 text-lg font-bold text-primary-600">OBLINTZ</h3>
-            <p className="text-gray-600">
-              Premium perfume e-commerce platform
+    <footer className="border-t border-line bg-sand">
+      <div className="container mx-auto px-4 py-16 sm:px-6">
+        <div className="grid grid-cols-2 gap-10 md:grid-cols-4 md:gap-8">
+          <div className="col-span-2 md:col-span-1">
+            <p className="font-serif text-xl font-semibold tracking-[0.18em] text-espresso">
+              OBLINTZ
+            </p>
+            <p className="mt-4 max-w-xs text-sm leading-relaxed text-warmgray">
+              Parfum original premium — dikurasi untuk membangkitkan kepercayaan
+              diri dan meninggalkan kesan yang tak terlupakan.
             </p>
           </div>
-          
+
           <div>
-            <h4 className="mb-4 font-semibold">Shop</h4>
-            <ul className="space-y-2 text-gray-600">
-              <li><Link href="/products" className="hover:text-primary-600">Semua Produk</Link></li>
-              <li><Link href="/categories" className="hover:text-primary-600">Kategori</Link></li>
-              <li><Link href="/quiz" className="hover:text-primary-600">Quiz Parfum</Link></li>
+            <h4 className="text-xs font-medium uppercase tracking-luxe text-gold-600">
+              Belanja
+            </h4>
+            <ul className="mt-4 space-y-3 text-sm text-warmgray">
+              {SHOP_LINKS.map((link) => (
+                <li key={link.href}>
+                  <Link
+                    href={link.href}
+                    className="transition-colors hover:text-primary-600"
+                  >
+                    {link.label}
+                  </Link>
+                </li>
+              ))}
             </ul>
           </div>
-          
+
           <div>
-            <h4 className="mb-4 font-semibold">Account</h4>
-            <ul className="space-y-2 text-gray-600">
-              <li><Link href="/login" className="hover:text-primary-600">Masuk</Link></li>
-              <li><Link href="/register" className="hover:text-primary-600">Daftar</Link></li>
-              <li><Link href="/account/orders" className="hover:text-primary-600">Pesanan Saya</Link></li>
+            <h4 className="text-xs font-medium uppercase tracking-luxe text-gold-600">
+              Akun
+            </h4>
+            <ul className="mt-4 space-y-3 text-sm text-warmgray">
+              {ACCOUNT_LINKS.map((link) => (
+                <li key={link.href}>
+                  <Link
+                    href={link.href}
+                    className="transition-colors hover:text-primary-600"
+                  >
+                    {link.label}
+                  </Link>
+                </li>
+              ))}
             </ul>
           </div>
-          
+
           <div>
-            <h4 className="mb-4 font-semibold">Contact</h4>
-            <ul className="space-y-2 text-gray-600">
-              <li>Email: support@oblintz.com</li>
-              <li>WhatsApp: +62 812 3456 7890</li>
+            <h4 className="text-xs font-medium uppercase tracking-luxe text-gold-600">
+              Kontak
+            </h4>
+            <ul className="mt-4 space-y-3 text-sm text-warmgray">
+              <li>
+                <a
+                  href="mailto:support@oblintz.com"
+                  className="transition-colors hover:text-primary-600"
+                >
+                  support@oblintz.com
+                </a>
+              </li>
+              <li>
+                <a
+                  href="https://wa.me/6281234567890"
+                  className="transition-colors hover:text-primary-600"
+                >
+                  +62 812 3456 7890
+                </a>
+              </li>
             </ul>
           </div>
         </div>
-        
-        <div className="mt-8 border-t pt-8 text-center text-gray-600">
-          <p>&copy; 2026 OBLINTZ. All rights reserved.</p>
+
+        <div className="mt-14 flex flex-col items-center justify-between gap-4 border-t border-line pt-8 text-sm text-warmgray sm:flex-row">
+          <p>&copy; 2026 OBLINTZ. Seluruh hak cipta dilindungi.</p>
+          <p className="text-xs uppercase tracking-luxe text-gold-600">
+            Parfum Original Premium
+          </p>
         </div>
       </div>
     </footer>

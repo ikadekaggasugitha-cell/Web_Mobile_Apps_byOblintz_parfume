@@ -5,6 +5,7 @@ import api from '@/lib/api';
 import { ProductCard } from '@/components/product/ProductCard';
 import { LoadingPage } from '@/components/ui/Loading';
 import { Button } from '@/components/ui/Button';
+import { PageHeader } from '@/components/layout/PageHeader';
 
 interface Product {
   id: string;
@@ -87,24 +88,23 @@ export default function ProductsPage() {
   }, [pagination]);
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-8">
+    <div className="mx-auto max-w-7xl px-4 py-14 sm:px-6">
       {/* Header */}
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900">Katalog Produk</h1>
-        <p className="mt-2 text-gray-600">
-          Temukan parfum premium yang sesuai dengan gaya Anda
-        </p>
-      </div>
+      <PageHeader
+        eyebrow="Katalog"
+        title="Koleksi Parfum"
+        description="Temukan parfum original premium yang menuturkan kisah Anda — dari nuansa segar hingga aroma hangat yang mendalam."
+      />
 
       {/* Filters */}
-      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="mb-8 mt-10 flex flex-col gap-4 border-t border-line pt-6 sm:flex-row sm:items-center sm:justify-between">
         <form onSubmit={handleSearch} className="flex gap-2">
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Cari produk..."
-            className="h-10 w-full rounded-lg border border-gray-300 px-4 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 sm:w-64"
+            placeholder="Cari parfum..."
+            className="h-11 w-full rounded-[10px] border border-line bg-white px-4 text-sm text-espresso placeholder:text-warmgray/60 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-500/25 sm:w-64"
           />
           <Button type="submit" size="sm">
             Cari
@@ -112,11 +112,11 @@ export default function ProductsPage() {
         </form>
 
         <div className="flex items-center gap-2">
-          <span className="text-sm text-gray-500">Urutkan:</span>
+          <span className="text-xs uppercase tracking-luxe text-warmgray">Urutkan</span>
           <select
             value={sort}
             onChange={(e) => setSort(e.target.value)}
-            className="h-10 rounded-lg border border-gray-300 px-3 text-sm focus:border-primary-500 focus:outline-none"
+            className="h-11 rounded-[10px] border border-line bg-white px-3 text-sm text-espresso focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-500/25"
           >
             {SORT_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>
@@ -131,12 +131,17 @@ export default function ProductsPage() {
       {isLoading ? (
         <LoadingPage />
       ) : products.length === 0 ? (
-        <div className="py-12 text-center text-gray-500">
-          Tidak ada produk ditemukan
+        <div className="py-16 text-center">
+          <p className="font-serif text-xl italic text-warmgray">
+            Tidak ada parfum ditemukan
+          </p>
+          <p className="mt-2 text-sm text-warmgray/80">
+            Coba kata kunci lain atau jelajahi seluruh koleksi kami.
+          </p>
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+          <div className="grid grid-cols-2 gap-x-5 gap-y-10 sm:grid-cols-3 lg:grid-cols-4">
             {products.map((product) => (
               <ProductCard key={product.id} product={product} />
             ))}
@@ -148,7 +153,7 @@ export default function ProductsPage() {
               {paginationPages.map((p, idx, arr) => (
                 <span key={p} className="flex items-center">
                   {idx > 0 && arr[idx - 1] !== p - 1 && (
-                    <span className="px-2 text-gray-400">...</span>
+                    <span className="px-2 text-warmgray/60">…</span>
                   )}
                   <Button
                     variant={p === pagination.page ? 'default' : 'outline'}

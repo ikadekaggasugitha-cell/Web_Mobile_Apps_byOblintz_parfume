@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
 import api from '@/lib/api';
 import { ProductCard } from '@/components/product/ProductCard';
+import { Section } from '@/components/layout/Section';
 import { SectionHeading } from './SectionHeading';
 
 interface Product {
@@ -52,43 +53,41 @@ export function Bestsellers() {
   }
 
   return (
-    <section className="bg-white py-20 sm:py-24">
-      <div className="container mx-auto px-4">
-        <div className="flex flex-col items-start justify-between gap-6 sm:flex-row sm:items-end">
-          <SectionHeading
-            align="left"
-            eyebrow="Paling Diminati"
-            title="Favorit Pelanggan Kami"
+    <Section tone="ivory">
+      <div className="flex flex-col items-start justify-between gap-6 sm:flex-row sm:items-end">
+        <SectionHeading
+          align="left"
+          eyebrow="Paling Diminati"
+          title="Favorit Pelanggan Kami"
+        />
+        <Link
+          href="/products"
+          className="group inline-flex shrink-0 items-center gap-1.5 text-xs font-medium uppercase tracking-luxe text-primary-700 transition-colors hover:text-primary-800"
+        >
+          Lihat Semua Produk
+          <ArrowRight
+            className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5"
+            aria-hidden="true"
           />
-          <Link
-            href="/products"
-            className="group inline-flex shrink-0 items-center gap-1.5 text-sm font-medium text-primary-600 transition-colors hover:text-primary-700"
-          >
-            Lihat Semua Produk
-            <ArrowRight
-              className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5"
-              aria-hidden="true"
-            />
-          </Link>
-        </div>
-
-        <div className="mt-10 grid grid-cols-2 gap-x-5 gap-y-8 lg:grid-cols-4">
-          {isLoading
-            ? Array.from({ length: SKELETON_COUNT }).map((_, i) => (
-                <div key={i} className="animate-pulse" aria-hidden="true">
-                  <div className="aspect-square rounded-xl bg-stone-100" />
-                  <div className="mt-3 space-y-2">
-                    <div className="h-3 w-1/3 rounded bg-stone-100" />
-                    <div className="h-4 w-3/4 rounded bg-stone-100" />
-                    <div className="h-4 w-1/2 rounded bg-stone-100" />
-                  </div>
-                </div>
-              ))
-            : products.map((product) => (
-                <ProductCard key={product.id} product={product} />
-              ))}
-        </div>
+        </Link>
       </div>
-    </section>
+
+      <div className="mt-12 grid grid-cols-2 gap-x-5 gap-y-10 lg:grid-cols-4">
+        {isLoading
+          ? Array.from({ length: SKELETON_COUNT }).map((_, i) => (
+              <div key={i} className="animate-pulse" aria-hidden="true">
+                <div className="aspect-[4/5] rounded-2xl bg-sand" />
+                <div className="mt-4 space-y-2">
+                  <div className="h-3 w-1/3 rounded bg-sand" />
+                  <div className="h-4 w-3/4 rounded bg-sand" />
+                  <div className="h-4 w-1/2 rounded bg-sand" />
+                </div>
+              </div>
+            ))
+          : products.map((product) => (
+              <ProductCard key={product.id} product={product} />
+            ))}
+      </div>
+    </Section>
   );
 }

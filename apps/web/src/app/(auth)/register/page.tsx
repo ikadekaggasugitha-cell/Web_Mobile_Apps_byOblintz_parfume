@@ -9,7 +9,7 @@ import { z } from 'zod';
 import api from '@/lib/api';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/Card';
+import { AuthLayout } from '@/components/layout/AuthLayout';
 
 const registerSchema = z.object({
   name: z.string().min(2, 'Nama minimal 2 karakter'),
@@ -58,71 +58,72 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="flex min-h-[calc(100vh-200px)] items-center justify-center px-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="text-center">
-          <CardTitle className="text-2xl">Buat Akun Baru</CardTitle>
-          <CardDescription>
-            Sudah punya akun?{' '}
-            <Link href="/login" className="text-primary-500 hover:underline">
-              Masuk
-            </Link>
-          </CardDescription>
-        </CardHeader>
-        <form onSubmit={handleSubmit(onSubmit)}>
-          <CardContent className="space-y-4">
-            {error && (
-              <div className="rounded-lg bg-red-50 p-3 text-sm text-red-600">
-                {error}
-              </div>
-            )}
+    <AuthLayout
+      title="Buat Akun Baru"
+      description={
+        <>
+          Sudah punya akun?{' '}
+          <Link href="/login" className="font-medium text-primary-700 hover:underline">
+            Masuk
+          </Link>
+        </>
+      }
+    >
+      <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
+        {error && (
+          <div
+            role="alert"
+            className="rounded-[10px] border border-red-200 bg-red-50 p-3 text-sm text-red-600"
+          >
+            {error}
+          </div>
+        )}
 
-            <Input
-              label="Nama Lengkap"
-              placeholder="John Doe"
-              error={errors.name?.message}
-              {...register('name')}
-            />
+        <Input
+          label="Nama Lengkap"
+          placeholder="Nama Anda"
+          error={errors.name?.message}
+          {...register('name')}
+        />
 
-            <Input
-              label="Email"
-              type="email"
-              placeholder="email@example.com"
-              error={errors.email?.message}
-              {...register('email')}
-            />
+        <Input
+          label="Email"
+          type="email"
+          placeholder="email@example.com"
+          error={errors.email?.message}
+          {...register('email')}
+        />
 
-            <Input
-              label="Nomor Telepon"
-              type="tel"
-              placeholder="081234567890"
-              error={errors.phone?.message}
-              {...register('phone')}
-            />
+        <Input
+          label="Nomor Telepon"
+          type="tel"
+          placeholder="081234567890"
+          error={errors.phone?.message}
+          {...register('phone')}
+        />
 
-            <Input
-              label="Password"
-              type="password"
-              placeholder="••••••••"
-              error={errors.password?.message}
-              {...register('password')}
-            />
+        <div className="grid gap-5 sm:grid-cols-2">
+          <Input
+            label="Password"
+            type="password"
+            placeholder="••••••••"
+            error={errors.password?.message}
+            {...register('password')}
+          />
 
-            <Input
-              label="Konfirmasi Password"
-              type="password"
-              placeholder="••••••••"
-              error={errors.confirmPassword?.message}
-              {...register('confirmPassword')}
-            />
-          </CardContent>
-          <CardFooter>
-            <Button type="submit" className="w-full" isLoading={isLoading}>
-              Daftar
-            </Button>
-          </CardFooter>
-        </form>
-      </Card>
-    </div>
+          <Input
+            label="Konfirmasi Password"
+            type="password"
+            placeholder="••••••••"
+            error={errors.confirmPassword?.message}
+            {...register('confirmPassword')}
+          />
+        </div>
+
+        <Button type="submit" size="lg" className="w-full" isLoading={isLoading}>
+          Daftar
+        </Button>
+      </form>
+    </AuthLayout>
   );
 }

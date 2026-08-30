@@ -15,17 +15,17 @@ export default function GlobalError({
 
   return (
     <div className="flex min-h-[60vh] flex-col items-center justify-center px-4 text-center">
-      <div className="rounded-2xl bg-white p-8 shadow-lg">
-        <div className="mb-4 text-6xl">⚠️</div>
-        <h1 className="mb-2 text-2xl font-bold text-gray-900">
-          Terjadi Kesalahan
+      <div className="max-w-md rounded-2xl border border-line bg-white p-10 shadow-soft">
+        <p className="text-xs uppercase tracking-luxe text-gold-600">Terjadi Kesalahan</p>
+        <h1 className="mt-3 font-serif text-2xl font-medium text-espresso">
+          Ada yang Tidak Beres
         </h1>
-        <p className="mb-6 text-gray-600">
+        <p className="mt-3 text-sm leading-relaxed text-warmgray">
           Maaf, terjadi kesalahan yang tidak terduga. Silakan coba lagi.
         </p>
         <button
           onClick={reset}
-          className="rounded-lg bg-primary-600 px-6 py-3 font-medium text-white hover:bg-primary-700 transition-colors"
+          className="mt-7 inline-flex h-11 items-center justify-center rounded-[10px] bg-primary-600 px-7 text-sm font-medium text-white transition-colors hover:bg-primary-700"
         >
           Coba Lagi
         </button>

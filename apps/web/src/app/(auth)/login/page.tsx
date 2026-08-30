@@ -9,7 +9,7 @@ import { z } from 'zod';
 import api from '@/lib/api';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/Card';
+import { AuthLayout } from '@/components/layout/AuthLayout';
 
 const loginSchema = z.object({
   email: z.string().email('Email tidak valid'),
@@ -52,61 +52,63 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="flex min-h-[calc(100vh-200px)] items-center justify-center px-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="text-center">
-          <CardTitle className="text-2xl">Masuk ke Akun</CardTitle>
-          <CardDescription>
-            Belum punya akun?{' '}
-            <Link href="/register" className="text-primary-500 hover:underline">
-              Daftar sekarang
-            </Link>
-          </CardDescription>
-        </CardHeader>
-        <form onSubmit={handleSubmit(onSubmit)}>
-          <CardContent className="space-y-4">
-            {error && (
-              <div className="rounded-lg bg-red-50 p-3 text-sm text-red-600">
-                {error}
-              </div>
-            )}
+    <AuthLayout
+      title="Masuk ke Akun"
+      description={
+        <>
+          Belum punya akun?{' '}
+          <Link href="/register" className="font-medium text-primary-700 hover:underline">
+            Daftar sekarang
+          </Link>
+        </>
+      }
+    >
+      <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
+        {error && (
+          <div
+            role="alert"
+            className="rounded-[10px] border border-red-200 bg-red-50 p-3 text-sm text-red-600"
+          >
+            {error}
+          </div>
+        )}
 
-            <Input
-              label="Email"
-              type="email"
-              placeholder="email@example.com"
-              error={errors.email?.message}
-              {...register('email')}
+        <Input
+          label="Email"
+          type="email"
+          placeholder="email@example.com"
+          error={errors.email?.message}
+          {...register('email')}
+        />
+
+        <Input
+          label="Password"
+          type="password"
+          placeholder="••••••••"
+          error={errors.password?.message}
+          {...register('password')}
+        />
+
+        <div className="flex items-center justify-between text-sm">
+          <label className="flex cursor-pointer items-center gap-2">
+            <input
+              type="checkbox"
+              className="h-4 w-4 rounded border-line accent-primary-600"
             />
+            <span className="text-warmgray">Ingat saya</span>
+          </label>
+          <Link
+            href="/forgot-password"
+            className="font-medium text-primary-700 hover:underline"
+          >
+            Lupa password?
+          </Link>
+        </div>
 
-            <Input
-              label="Password"
-              type="password"
-              placeholder="••••••••"
-              error={errors.password?.message}
-              {...register('password')}
-            />
-
-            <div className="flex items-center justify-between text-sm">
-              <label className="flex items-center gap-2">
-                <input type="checkbox" className="rounded border-gray-300" />
-                <span className="text-gray-600">Ingat saya</span>
-              </label>
-              <Link
-                href="/forgot-password"
-                className="text-primary-500 hover:underline"
-              >
-                Lupa password?
-              </Link>
-            </div>
-          </CardContent>
-          <CardFooter>
-            <Button type="submit" className="w-full" isLoading={isLoading}>
-              Masuk
-            </Button>
-          </CardFooter>
-        </form>
-      </Card>
-    </div>
+        <Button type="submit" size="lg" className="w-full" isLoading={isLoading}>
+          Masuk
+        </Button>
+      </form>
+    </AuthLayout>
   );
 }

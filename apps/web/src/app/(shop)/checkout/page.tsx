@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/Input';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { LoadingPage } from '@/components/ui/Loading';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
+import { PageHeader } from '@/components/layout/PageHeader';
 
 const checkoutSchema = z.object({
   name: z.string().min(2, 'Nama harus minimal 2 karakter'),
@@ -141,9 +142,9 @@ export default function CheckoutPage() {
   }
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-8">
+    <div className="mx-auto max-w-7xl px-4 py-14 sm:px-6">
       <ToastContainer toasts={toasts} />
-      <h1 className="mb-8 text-3xl font-bold text-gray-900">Checkout</h1>
+      <PageHeader eyebrow="Pembayaran" title="Checkout" className="mb-10" />
 
       <form onSubmit={handleSubmit(onSubmit)}>
         <div className="grid gap-8 lg:grid-cols-3">
@@ -198,33 +199,33 @@ export default function CheckoutPage() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
-                  <label className="flex items-center gap-3 rounded-lg border border-gray-200 p-4 cursor-pointer hover:bg-gray-50">
+                  <label className="flex cursor-pointer items-center gap-3 rounded-[12px] border border-line p-4 transition-colors hover:bg-sand has-[:checked]:border-primary-600 has-[:checked]:bg-primary-50/50">
                     <input
                       type="radio"
                       value="standard"
                       {...register('shippingMethod')}
-                      className="text-primary-500"
+                      className="h-4 w-4 accent-primary-600"
                     />
                     <div className="flex-1">
-                      <p className="font-medium">Reguler (3-5 hari)</p>
-                      <p className="text-sm text-gray-500">Estimasi 3-5 hari kerja</p>
+                      <p className="font-medium text-espresso">Reguler</p>
+                      <p className="text-sm text-warmgray">Estimasi 3-5 hari kerja</p>
                     </div>
-                    <span className="font-medium">
+                    <span className="font-medium text-espresso">
                       {freeShipping ? 'GRATIS' : formatCurrency(15000)}
                     </span>
                   </label>
-                  <label className="flex items-center gap-3 rounded-lg border border-gray-200 p-4 cursor-pointer hover:bg-gray-50">
+                  <label className="flex cursor-pointer items-center gap-3 rounded-[12px] border border-line p-4 transition-colors hover:bg-sand has-[:checked]:border-primary-600 has-[:checked]:bg-primary-50/50">
                     <input
                       type="radio"
                       value="express"
                       {...register('shippingMethod')}
-                      className="text-primary-500"
+                      className="h-4 w-4 accent-primary-600"
                     />
                     <div className="flex-1">
-                      <p className="font-medium">Express (1-2 hari)</p>
-                      <p className="text-sm text-gray-500">Estimasi 1-2 hari kerja</p>
+                      <p className="font-medium text-espresso">Express</p>
+                      <p className="text-sm text-warmgray">Estimasi 1-2 hari kerja</p>
                     </div>
-                    <span className="font-medium">
+                    <span className="font-medium text-espresso">
                       {freeShipping ? 'GRATIS' : formatCurrency(35000)}
                     </span>
                   </label>
@@ -247,35 +248,37 @@ export default function CheckoutPage() {
               </CardHeader>
               <CardContent className="space-y-4">
                 {cart.items.map((item: any) => (
-                  <div key={item.id} className="flex justify-between text-sm">
-                    <span className="text-gray-600">
-                      {item.product.name} x{item.quantity}
+                  <div key={item.id} className="flex justify-between gap-4 text-sm">
+                    <span className="text-warmgray">
+                      {item.product.name} ×{item.quantity}
                     </span>
-                    <span className="font-medium">
+                    <span className="shrink-0 font-medium text-espresso">
                       {formatCurrency(item.subtotal)}
                     </span>
                   </div>
                 ))}
 
-                <hr />
+                <hr className="border-line" />
 
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between">
-                    <span className="text-gray-600">Subtotal</span>
-                    <span>{formatCurrency(cart.summary.subtotal)}</span>
+                    <span className="text-warmgray">Subtotal</span>
+                    <span className="text-espresso">{formatCurrency(cart.summary.subtotal)}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-gray-600">Ongkos Kirim</span>
-                    <span>
+                    <span className="text-warmgray">Ongkos Kirim</span>
+                    <span className="text-espresso">
                       {actualShipping === 0
                         ? 'GRATIS'
                         : formatCurrency(actualShipping)}
                     </span>
                   </div>
-                  <hr />
-                  <div className="flex justify-between text-base font-semibold">
-                    <span>Total</span>
-                    <span>{formatCurrency(total)}</span>
+                  <hr className="border-line" />
+                  <div className="flex items-baseline justify-between">
+                    <span className="text-sm font-medium text-espresso">Total</span>
+                    <span className="font-serif text-xl font-medium text-espresso">
+                      {formatCurrency(total)}
+                    </span>
                   </div>
                 </div>
 
@@ -288,8 +291,8 @@ export default function CheckoutPage() {
                   Buat Pesanan
                 </Button>
 
-                <p className="text-xs text-center text-gray-500">
-                  Dengan melakukan pemesanan, Anda menyetujui syarat & ketentuan
+                <p className="text-center text-xs text-warmgray">
+                  Dengan melakukan pemesanan, Anda menyetujui syarat &amp; ketentuan
                 </p>
               </CardContent>
             </Card>

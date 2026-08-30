@@ -17,7 +17,7 @@ export default function OpengraphImage() {
           alignItems: 'center',
           justifyContent: 'center',
           background:
-            'linear-gradient(135deg, #1c1917 0%, #763028 55%, #a56f29 100%)',
+            'linear-gradient(135deg, #211c19 0%, #54151e 45%, #7a1f2b 100%)',
           color: '#faf7f2',
           fontFamily: 'serif',
         }}
@@ -27,7 +27,7 @@ export default function OpengraphImage() {
             fontSize: 44,
             letterSpacing: 12,
             textTransform: 'uppercase',
-            color: '#dcbb75',
+            color: '#c6a15b',
           }}
         >
           Parfum Original Premium

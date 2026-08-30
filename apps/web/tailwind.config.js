@@ -12,34 +12,67 @@ module.exports = {
         serif: ['var(--font-serif)', 'Georgia', 'Cambria', 'serif'],
       },
       colors: {
+        // ── Brand accent — Deep Burgundy / Oxblood ─────────────────────────
+        // 600 = Burgundy #7A1F2B (primary), 800 = Oxblood #54151E (dark).
+        // An accent, never a page background. See design tokens in globals.css.
         primary: {
-          50: '#fdf4f3',
-          100: '#fce8e6',
-          200: '#f9d5d2',
-          300: '#f3b5ae',
-          400: '#ea8c82',
-          500: '#dc6457',
-          600: '#c84a3c',
-          700: '#a83b2e',
-          800: '#8c3429',
-          900: '#763028',
-          950: '#401510',
+          50: '#fbf3f4',
+          100: '#f6e2e4',
+          200: '#eec7cb',
+          300: '#df9ea5',
+          400: '#c96b76',
+          500: '#a83e4b',
+          600: '#7a1f2b',
+          700: '#661a24',
+          800: '#54151e',
+          900: '#451219',
+          950: '#26090d',
         },
-        // Warm antique-gold accent for eyebrows, hairlines and luxury detailing
+        // ── Champagne Gold — subtle premium detailing only ─────────────────
+        // 400 = Champagne #C6A15B. Used for eyebrows, hairlines, fine accents.
         gold: {
-          50: '#fbf7ef',
-          100: '#f5ecd7',
-          200: '#e9d5a8',
-          300: '#dcbb75',
-          400: '#cfa24f',
-          500: '#c08a34',
-          600: '#a56f29',
-          700: '#845423',
-          800: '#6e4622',
-          900: '#5e3c20',
+          50: '#faf6ee',
+          100: '#f3e9d3',
+          200: '#e7d3a9',
+          300: '#d7ba7e',
+          400: '#c6a15b',
+          500: '#b58a45',
+          600: '#98713a',
+          700: '#795a31',
+          800: '#63492c',
+          900: '#533d27',
         },
-        // Warm neutral canvas
+        // ── Rosewood — muted mauve for cards/panels layered ON burgundy ─────
+        // Used sparingly on dark heritage bands (ref: inner-circle / testimonial
+        // cards). Never as a page background.
+        rosewood: {
+          50: '#f7eef0',
+          100: '#eddadd',
+          200: '#dcb8bd',
+          300: '#c8949c',
+          400: '#b0717b',
+          500: '#985761',
+          600: '#7f454f',
+          700: '#663843',
+        },
+        // ── Warm neutrals (the 60% + 30% of the palette) ───────────────────
+        ivory: '#faf7f2', // Warm Ivory — primary background
+        sand: '#f3ede4', // Soft Cream — surface / secondary background
+        espresso: '#211c19', // primary text
+        warmgray: '#6f6862', // secondary text
+        line: '#ded2c3', // soft warm border
+        // Back-compat alias for existing `bg-cream` usages
         cream: '#faf7f2',
+      },
+      borderColor: {
+        // Bare `border` / `border-t` / `border-y` resolve to the soft warm line,
+        // so surfaces are separated by hairlines rather than cool gray.
+        DEFAULT: '#ded2c3',
+      },
+      boxShadow: {
+        // Restrained, warm-tinted elevation — luxury prefers borders over shadow.
+        soft: '0 1px 2px 0 rgba(33, 28, 25, 0.04)',
+        card: '0 8px 30px -12px rgba(33, 28, 25, 0.12)',
       },
       keyframes: {
         'fade-up': {

@@ -2,20 +2,47 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ─────────────────────────────────────────────────────────────────────────
+   OBLINTZ — Design Tokens
+   Single source of truth for the brand palette. Tailwind mirrors these values
+   (see tailwind.config.js); reference the Tailwind classes in components and
+   fall back to these vars only for one-off cases.
+   ───────────────────────────────────────────────────────────────────────── */
 :root {
-  --foreground-rgb: 0, 0, 0;
-  --background-start-rgb: 255, 255, 255;
-  --background-end-rgb: 255, 255, 255;
+  --color-primary: #7a1f2b; /* Burgundy — accent */
+  --color-primary-dark: #54151e; /* Oxblood */
+  --color-accent: #c6a15b; /* Champagne gold */
+
+  --color-background: #faf7f2; /* Warm ivory */
+  --color-surface: #f3ede4; /* Soft cream */
+
+  --color-text: #211c19; /* Espresso */
+  --color-text-secondary: #6f6862; /* Warm gray */
+
+  --color-border: #ded2c3; /* Soft warm border */
+  --color-rosewood: #985761; /* Muted mauve — cards on burgundy */
 }
 
 body {
-  color: rgb(var(--foreground-rgb));
-  background: linear-gradient(
-      to bottom,
-      transparent,
-      rgb(var(--background-end-rgb))
-    )
-    rgb(var(--background-start-rgb));
+  background-color: var(--color-background);
+  color: var(--color-text);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+@layer base {
+  /* Let Fraunces adapt its contrast to the rendered size (variable opsz axis). */
+  .font-serif {
+    font-optical-sizing: auto;
+  }
+}
+
+@layer base {
+  /* Warm, quiet text selection rather than the default blue. */
+  ::selection {
+    background-color: #7a1f2b;
+    color: #faf7f2;
+  }
 }
 
 @layer utilities {

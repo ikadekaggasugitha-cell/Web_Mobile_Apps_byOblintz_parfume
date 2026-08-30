@@ -15,7 +15,7 @@ export function GET() {
           alignItems: 'center',
           justifyContent: 'center',
           background: '#faf7f2',
-          color: '#c84a3c',
+          color: '#7a1f2b',
           fontFamily: 'serif',
           fontSize: 120,
           fontWeight: 700,

@@ -1,6 +1,7 @@
 import { Metadata } from 'next';
 import { ProductClient } from './ProductClient';
 import { JsonLd } from '@/components/seo/JsonLd';
+import { resolveImages } from '@/lib/utils';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://oblintz.com';
@@ -9,9 +10,9 @@ interface ProductMeta {
   name: string;
   slug: string;
   description: string;
-  price: number;
+  price: number | string;
   stock: number;
-  images: string[];
+  images: Array<string | { url?: string | null }>;
   category: { name: string };
   metaTitle: string | null;
   metaDesc: string | null;
@@ -52,7 +53,10 @@ export async function generateMetadata({
     product.metaDesc ||
     product.description?.slice(0, 160) ||
     `Beli ${product.name} di OBLINTZ. Harga terbaik.`;
-  const imageUrl = product.images?.[0] || `${SITE_URL}/opengraph-image`;
+  const toAbsolute = (u: string) =>
+    u.startsWith('http') ? u : `${SITE_URL}${u.startsWith('/') ? '' : '/'}${u}`;
+  const productImages = resolveImages(product.images).map(toAbsolute);
+  const imageUrl = productImages[0] || `${SITE_URL}/opengraph-image`;
 
   return {
     title,
@@ -102,7 +106,11 @@ export default async function ProductPage({
         name: product.name,
         description:
           product.metaDesc || product.description?.slice(0, 300) || product.name,
-        image: product.images?.length ? product.images : undefined,
+        image: resolveImages(product.images).length
+          ? resolveImages(product.images).map((u) =>
+              u.startsWith('http') ? u : `${SITE_URL}${u.startsWith('/') ? '' : '/'}${u}`
+            )
+          : undefined,
         category: product.category?.name,
         brand: { '@type': 'Brand', name: 'OBLINTZ' },
         // Only emit AggregateRating when there are real approved reviews —

@@ -5,11 +5,13 @@ import { useParams, useRouter } from 'next/navigation';
 import Image from 'next/image';
 import Link from 'next/link';
 import api from '@/lib/api';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, resolveImages, resolveNotes } from '@/lib/utils';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
+import { Eyebrow } from '@/components/ui/Eyebrow';
 import { LoadingPage } from '@/components/ui/Loading';
 import { ProductCard } from '@/components/product/ProductCard';
+import { ProductImage } from '@/components/product/ProductImage';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
 
 interface Review {
@@ -24,11 +26,11 @@ interface Product {
   name: string;
   slug: string;
   description: string;
-  price: number;
-  comparePrice?: number | null;
+  price: number | string;
+  comparePrice?: number | string | null;
   stock: number;
-  images: string[];
-  notes: string[];
+  images: Array<string | { url?: string | null }>;
+  notes: string[] | { top?: string[]; middle?: string[]; base?: string[] };
   occasions: string[];
   avgRating: number;
   _count: { reviews: number };
@@ -40,8 +42,8 @@ interface RelatedProduct {
   id: string;
   name: string;
   slug: string;
-  price: number;
-  images: string[];
+  price: number | string;
+  images: Array<string | { url?: string | null }>;
   category: { name: string };
   _count: { reviews: number };
 }
@@ -125,79 +127,86 @@ export function ProductClient() {
     setQuantity((prev) => Math.max(1, prev - 1));
   }, []);
 
+  const price = product ? Number(product.price) : 0;
+  const comparePrice =
+    product?.comparePrice != null ? Number(product.comparePrice) : null;
+
   const discount = useMemo(
     () =>
-      product?.comparePrice
-        ? Math.round(((product.comparePrice - product.price) / product.comparePrice) * 100)
+      comparePrice && comparePrice > price
+        ? Math.round(((comparePrice - price) / comparePrice) * 100)
         : 0,
-    [product]
+    [comparePrice, price]
   );
+
+  const images = useMemo(() => resolveImages(product?.images), [product]);
+  const notes = useMemo(() => resolveNotes(product?.notes), [product]);
 
   if (isLoading) return <LoadingPage />;
   if (isError) {
     return (
       <div className="flex min-h-[60vh] flex-col items-center justify-center px-4 text-center">
-        <span className="text-6xl">⚠️</span>
-        <h1 className="mt-4 text-2xl font-bold text-gray-900">Gagal Memuat Produk</h1>
-        <p className="mt-2 text-gray-500">Terjadi kesalahan saat memuat detail produk</p>
+        <h1 className="font-serif text-3xl font-medium text-espresso">Gagal Memuat Produk</h1>
+        <p className="mt-2 text-warmgray">Terjadi kesalahan saat memuat detail produk</p>
         <Button className="mt-6" onClick={() => window.location.reload()}>Coba Lagi</Button>
       </div>
     );
   }
-  if (!product) return <div className="py-12 text-center">Produk tidak ditemukan</div>;
+  if (!product)
+    return (
+      <div className="py-16 text-center font-serif text-xl italic text-warmgray">
+        Produk tidak ditemukan
+      </div>
+    );
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-8">
+    <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 sm:py-14">
       <ToastContainer toasts={toasts} />
 
-      <nav className="mb-6 text-sm text-gray-500" aria-label="Breadcrumb">
-        <Link href="/" className="hover:text-primary-500">
+      <nav className="mb-8 text-xs uppercase tracking-luxe text-warmgray" aria-label="Breadcrumb">
+        <Link href="/" className="transition-colors hover:text-primary-700">
           Beranda
         </Link>
-        <span className="mx-2">/</span>
-        <Link href="/products" className="hover:text-primary-500">
-          Produk
+        <span className="mx-2 text-line" aria-hidden="true">/</span>
+        <Link href="/products" className="transition-colors hover:text-primary-700">
+          Koleksi
         </Link>
-        <span className="mx-2">/</span>
+        <span className="mx-2 text-line" aria-hidden="true">/</span>
         <Link
-          href={`/categories/${product.category.slug}`}
-          className="hover:text-primary-500"
+          href={`/products?category=${product.category.slug}`}
+          className="transition-colors hover:text-primary-700"
         >
           {product.category.name}
         </Link>
-        <span className="mx-2">/</span>
-        <span className="text-gray-900">{product.name}</span>
+        <span className="mx-2 text-line" aria-hidden="true">/</span>
+        <span className="text-espresso">{product.name}</span>
       </nav>
 
       <div className="grid gap-8 lg:grid-cols-2">
         <div className="space-y-4">
-          <div className="aspect-square overflow-hidden rounded-xl bg-gray-100">
-            {product.images?.[selectedImage] ? (
-              <Image
-                src={product.images[selectedImage]}
-                alt={product.name}
-                width={600}
-                height={600}
-                className="h-full w-full object-cover"
-                priority
-              />
-            ) : (
-              <div className="flex h-full items-center justify-center text-gray-400 text-6xl">
-                📷
-              </div>
-            )}
+          <div className="aspect-square overflow-hidden rounded-2xl border border-line bg-sand">
+            <ProductImage
+              src={images[selectedImage]}
+              alt={product.name}
+              width={600}
+              height={600}
+              priority
+              fallbackClassName="text-4xl"
+              className="h-full w-full object-cover"
+            />
           </div>
-          {product.images.length > 1 && (
+          {images.length > 1 && (
             <div className="flex gap-2 overflow-x-auto">
-              {product.images.map((img, idx) => (
+              {images.map((img, idx) => (
                 <button
                   key={idx}
                   onClick={() => setSelectedImage(idx)}
-                  className={`h-20 w-20 flex-shrink-0 overflow-hidden rounded-lg border-2 ${
+                  className={`h-20 w-20 flex-shrink-0 overflow-hidden rounded-lg border-2 transition-colors ${
                     idx === selectedImage
-                      ? 'border-primary-500'
-                      : 'border-gray-200'
+                      ? 'border-primary-600'
+                      : 'border-line'
                   }`}
+                  aria-label={`Lihat gambar ${idx + 1}`}
                 >
                   <Image
                     src={img}
@@ -212,57 +221,58 @@ export function ProductClient() {
           )}
         </div>
 
-        <div className="space-y-6">
+        <div className="space-y-7">
           <div>
-            <Badge variant="secondary">{product.category.name}</Badge>
-            <h1 className="mt-3 text-3xl font-bold text-gray-900">
+            <Eyebrow className="mb-3">{product.category.name}</Eyebrow>
+            <h1 className="font-serif text-4xl font-medium leading-tight tracking-[-0.01em] text-espresso">
               {product.name}
             </h1>
-            <div className="mt-2 flex items-center gap-4">
-              <div className="flex items-center gap-1 text-sm text-gray-500">
-                <span className="text-yellow-500">★</span>
-                <span>{product.avgRating}</span>
+            <div className="mt-4 flex items-center gap-4">
+              <div className="flex items-center gap-1.5 text-sm text-warmgray">
+                <span className="text-gold-400" aria-hidden="true">★</span>
+                <span className="font-medium text-espresso">{product.avgRating}</span>
                 <span>({product._count.reviews} ulasan)</span>
               </div>
+              <span aria-hidden="true" className="text-line">|</span>
               <span
                 className={`text-sm font-medium ${
-                  product.stock > 0 ? 'text-green-600' : 'text-red-500'
+                  product.stock > 0 ? 'text-green-700' : 'text-red-600'
                 }`}
               >
                 {product.stock > 0
-                  ? `Stok: ${product.stock} tersedia`
+                  ? `${product.stock} tersedia`
                   : 'Stok habis'}
               </span>
             </div>
           </div>
 
           <div className="flex items-baseline gap-3">
-            <span className="text-3xl font-bold text-gray-900">
-              {formatCurrency(product.price)}
+            <span className="font-serif text-3xl font-medium text-espresso">
+              {formatCurrency(price)}
             </span>
-            {product.comparePrice && (
+            {comparePrice && (
               <>
-                <span className="text-lg text-gray-400 line-through">
-                  {formatCurrency(product.comparePrice)}
+                <span className="text-lg text-warmgray/70 line-through">
+                  {formatCurrency(comparePrice)}
                 </span>
-                <span className="rounded bg-red-100 px-2 py-1 text-sm font-medium text-red-600">
-                  -{discount}%
+                <span className="rounded-full bg-primary-50 px-2.5 py-1 text-sm font-medium text-primary-700">
+                  −{discount}%
                 </span>
               </>
             )}
           </div>
 
-          <div className="prose prose-sm max-w-none text-gray-600">
-            <p>{product.description}</p>
-          </div>
+          <p className="max-w-prose leading-relaxed text-warmgray">
+            {product.description}
+          </p>
 
-          {product.notes?.length > 0 && (
+          {notes.length > 0 && (
             <div>
-              <h3 className="mb-2 text-sm font-medium text-gray-900">
+              <h3 className="mb-3 text-xs uppercase tracking-luxe text-gold-600">
                 Catatan Parfum
               </h3>
               <div className="flex flex-wrap gap-2">
-                {product.notes.map((note) => (
+                {notes.map((note) => (
                   <Badge key={note} variant="outline">
                     {note}
                   </Badge>
@@ -273,7 +283,7 @@ export function ProductClient() {
 
           {product.occasions?.length > 0 && (
             <div>
-              <h3 className="mb-2 text-sm font-medium text-gray-900">
+              <h3 className="mb-3 text-xs uppercase tracking-luxe text-gold-600">
                 Cocok Untuk
               </h3>
               <div className="flex flex-wrap gap-2">
@@ -286,19 +296,19 @@ export function ProductClient() {
             </div>
           )}
 
-          <div className="flex items-center gap-4">
-            <div className="flex items-center rounded-lg border border-gray-300">
+          <div className="flex items-center gap-4 pt-1">
+            <div className="flex items-center rounded-[10px] border border-line">
               <button
                 onClick={decrementQuantity}
-                className="px-3 py-2 text-gray-600 hover:bg-gray-50"
+                className="px-4 py-2.5 text-espresso transition-colors hover:bg-sand"
                 aria-label="Kurangi jumlah"
               >
-                -
+                −
               </button>
-              <span className="px-4 py-2 font-medium" aria-label={`Jumlah: ${quantity}`}>{quantity}</span>
+              <span className="px-4 py-2.5 font-medium text-espresso" aria-label={`Jumlah: ${quantity}`}>{quantity}</span>
               <button
                 onClick={incrementQuantity}
-                className="px-3 py-2 text-gray-600 hover:bg-gray-50"
+                className="px-4 py-2.5 text-espresso transition-colors hover:bg-sand"
                 aria-label="Tambah jumlah"
               >
                 +
@@ -315,30 +325,34 @@ export function ProductClient() {
             </Button>
           </div>
 
-          <div className="rounded-lg bg-gray-50 p-4 text-sm text-gray-600">
-            <p>🎁 Tersedia gift wrapping (+Rp 15.000/item)</p>
-            <p>🚚 Gratis ongkir untuk pembelian di atas Rp 500.000</p>
+          <div className="space-y-1.5 rounded-xl border border-line bg-sand p-4 text-sm text-warmgray">
+            <p>Tersedia gift wrapping elegan (+Rp 15.000/item)</p>
+            <p>Gratis ongkir untuk pembelian di atas Rp 500.000</p>
           </div>
         </div>
       </div>
 
-      <div className="mt-16">
-        <h2 className="mb-6 text-2xl font-bold text-gray-900">Ulasan Produk</h2>
+      <div className="mt-20 border-t border-line pt-12">
+        <h2 className="font-serif text-2xl font-medium text-espresso sm:text-3xl">
+          Ulasan Produk
+        </h2>
         {product.reviews?.length === 0 ? (
-          <p className="text-gray-500">Belum ada ulasan</p>
+          <p className="mt-4 font-serif text-lg italic text-warmgray">
+            Belum ada ulasan untuk parfum ini.
+          </p>
         ) : (
-          <div className="space-y-4">
+          <div className="mt-6 space-y-4">
             {product.reviews?.map((review: any) => (
-              <div key={review.id} className="rounded-lg border border-gray-200 p-4">
+              <div key={review.id} className="rounded-2xl border border-line bg-white p-5">
                 <div className="flex items-center gap-2">
-                  <span className="text-yellow-500">
+                  <span className="text-gold-400" aria-hidden="true">
                     {'★'.repeat(review.rating)}
                   </span>
-                  <span className="text-sm font-medium text-gray-900">
+                  <span className="text-sm font-medium text-espresso">
                     {review.user.name}
                   </span>
                 </div>
-                <p className="mt-2 text-sm text-gray-600">{review.comment}</p>
+                <p className="mt-2 text-sm leading-relaxed text-warmgray">{review.comment}</p>
               </div>
             ))}
           </div>
@@ -346,11 +360,11 @@ export function ProductClient() {
       </div>
 
       {related.length > 0 && (
-        <div className="mt-16">
-          <h2 className="mb-6 text-2xl font-bold text-gray-900">
-            Produk Terkait
+        <div className="mt-20 border-t border-line pt-12">
+          <h2 className="font-serif text-2xl font-medium text-espresso sm:text-3xl">
+            Anda Mungkin Juga Suka
           </h2>
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+          <div className="mt-8 grid grid-cols-2 gap-x-5 gap-y-10 sm:grid-cols-3 lg:grid-cols-4">
             {related.map((item) => (
               <ProductCard key={item.id} product={item} />
             ))}

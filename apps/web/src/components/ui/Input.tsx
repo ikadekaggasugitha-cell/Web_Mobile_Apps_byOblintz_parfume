@@ -16,14 +16,14 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
         {label && (
           <label
             htmlFor={inputId}
-            className="mb-1.5 block text-sm font-medium text-gray-700"
+            className="mb-1.5 block text-sm font-medium text-espresso"
           >
             {label}
           </label>
         )}
         <div className="relative">
           {icon && (
-            <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">
+            <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-warmgray">
               {icon}
             </div>
           )}
@@ -31,19 +31,19 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
             type={type}
             id={inputId}
             className={cn(
-              'flex h-10 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm transition-colors',
-              'placeholder:text-gray-400',
-              'focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500',
+              'flex h-11 w-full rounded-[10px] border border-line bg-white px-3.5 py-2 text-sm text-espresso transition-colors',
+              'placeholder:text-warmgray/60',
+              'focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-500/25',
               'disabled:cursor-not-allowed disabled:opacity-50',
               icon && 'pl-10',
-              error && 'border-red-500 focus:border-red-500 focus:ring-red-500',
+              error && 'border-red-500 focus:border-red-500 focus:ring-red-500/25',
               className
             )}
             ref={ref}
             {...props}
           />
         </div>
-        {error && <p className="mt-1 text-xs text-red-500">{error}</p>}
+        {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
       </div>
     );
   }

@@ -3,15 +3,16 @@
 import { useState, useEffect, useCallback, useMemo, memo } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import Image from 'next/image';
+import { ProductImage } from '@/components/product/ProductImage';
 import api from '@/lib/api';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, resolveImageUrl } from '@/lib/utils';
 import { Button } from '@/components/ui/Button';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { LoadingPage } from '@/components/ui/Loading';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
+import { PageHeader } from '@/components/layout/PageHeader';
 
 interface Subscription {
   id: string;
@@ -147,17 +148,16 @@ export default function SubscriptionsPage() {
   if (isLoading) return <LoadingPage />;
   if (isError) {
     return (
-      <div className="mx-auto max-w-7xl px-4 py-16 text-center">
-        <span className="text-6xl">⚠️</span>
-        <h1 className="mt-4 text-2xl font-bold text-gray-900">Gagal Memuat Langganan</h1>
-        <p className="mt-2 text-gray-500">Terjadi kesalahan saat memuat data langganan Anda</p>
+      <div className="mx-auto max-w-7xl px-4 py-24 text-center sm:px-6">
+        <h1 className="font-serif text-3xl font-medium text-espresso">Gagal Memuat Langganan</h1>
+        <p className="mt-2 text-warmgray">Terjadi kesalahan saat memuat data langganan Anda</p>
         <Button className="mt-6" onClick={() => { setIsError(false); refreshSubscriptions(); }}>Coba Lagi</Button>
       </div>
     );
   }
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-8">
+    <div className="mx-auto max-w-7xl px-4 py-14 sm:px-6">
       <ToastContainer toasts={toasts} />
       <ConfirmDialog
         isOpen={cancelConfirm.open}
@@ -169,21 +169,20 @@ export default function SubscriptionsPage() {
         variant="danger"
       />
 
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900">Langgananku</h1>
-        <p className="mt-1 text-gray-500">
-          Kelola langganan parfum rutinmu
-        </p>
-      </div>
+      <PageHeader
+        eyebrow="Langganan"
+        title="Langgananku"
+        description="Kelola langganan parfum rutin Anda."
+        className="mb-10"
+      />
 
       {subscriptions.length === 0 ? (
-        <div className="py-16 text-center">
-          <span className="text-6xl">📦</span>
-          <h2 className="mt-4 text-xl font-semibold text-gray-900">
+        <div className="py-20 text-center">
+          <h2 className="font-serif text-2xl font-medium text-espresso">
             Belum Ada Langganan
           </h2>
-          <p className="mt-2 text-gray-500">
-            Berlangganan untuk mendapatkan parfum favoritmu secara rutin
+          <p className="mt-2 text-warmgray">
+            Berlangganan untuk menerima parfum favorit Anda secara rutin.
           </p>
           <Link href="/products">
             <Button className="mt-6">Mulai Berlangganan</Button>
@@ -193,7 +192,7 @@ export default function SubscriptionsPage() {
         <div className="space-y-8">
           {activeSubscriptions.length > 0 && (
             <div>
-              <h2 className="mb-4 text-lg font-semibold text-gray-900">
+              <h2 className="mb-4 font-serif text-lg font-medium text-espresso">
                 Aktif ({activeSubscriptions.length})
               </h2>
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -212,7 +211,7 @@ export default function SubscriptionsPage() {
 
           {pausedSubscriptions.length > 0 && (
             <div>
-              <h2 className="mb-4 text-lg font-semibold text-gray-900">
+              <h2 className="mb-4 font-serif text-lg font-medium text-espresso">
                 Dijeda ({pausedSubscriptions.length})
               </h2>
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -231,7 +230,7 @@ export default function SubscriptionsPage() {
 
           {cancelledSubscriptions.length > 0 && (
             <div>
-              <h2 className="mb-4 text-lg font-semibold text-gray-900">
+              <h2 className="mb-4 font-serif text-lg font-medium text-espresso">
                 Dibatalkan ({cancelledSubscriptions.length})
               </h2>
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -273,36 +272,31 @@ const SubscriptionCard = memo(function SubscriptionCard({
     <Card>
       <CardContent className="p-4">
         <div className="flex gap-4">
-          <div className="h-20 w-20 flex-shrink-0 overflow-hidden rounded-lg bg-gray-100">
-            {subscription.product.images?.[0] ? (
-              <Image
-                src={subscription.product.images[0]}
-                alt={subscription.product.name}
-                width={80}
-                height={80}
-                className="h-full w-full object-cover"
-                unoptimized
-              />
-            ) : (
-              <div className="flex h-full items-center justify-center text-gray-400">
-                📷
-              </div>
-            )}
+          <div className="h-20 w-20 flex-shrink-0 overflow-hidden rounded-lg border border-line bg-sand">
+            <ProductImage
+              src={resolveImageUrl(subscription.product.images?.[0])}
+              alt={subscription.product.name}
+              width={80}
+              height={80}
+              unoptimized
+              fallbackClassName="text-xs"
+              className="h-full w-full object-cover"
+            />
           </div>
 
           <div className="flex-1">
             <Link
               href={`/products/${subscription.product.id}`}
-              className="font-medium text-gray-900 hover:text-primary-500"
+              className="font-serif text-lg font-medium text-espresso transition-colors hover:text-primary-700"
             >
               {subscription.product.name}
             </Link>
-            <p className="text-sm text-gray-500">
+            <p className="text-xs uppercase tracking-luxe text-gold-600">
               {subscription.product.category.name}
             </p>
-            <div className="mt-1 flex items-center gap-2">
+            <div className="mt-2 flex items-center gap-2">
               <Badge variant={status.color as 'success' | 'warning' | 'danger'}>{status.label}</Badge>
-              <span className="text-sm text-gray-500">
+              <span className="text-sm text-warmgray">
                 {FREQUENCY_LABELS[subscription.frequency] || subscription.frequency}
               </span>
             </div>
@@ -310,10 +304,10 @@ const SubscriptionCard = memo(function SubscriptionCard({
         </div>
 
         {subscription.status === 'ACTIVE' && subscription.nextDelivery && (
-          <div className="mt-4 rounded-lg bg-gray-50 p-3 text-sm">
-            <p className="text-gray-600">
+          <div className="mt-4 rounded-xl border border-line bg-sand p-3 text-sm">
+            <p className="text-warmgray">
               Pengiriman berikutnya:{' '}
-              <span className="font-medium text-gray-900">
+              <span className="font-medium text-espresso">
                 {new Date(subscription.nextDelivery).toLocaleDateString('id-ID', {
                   weekday: 'long',
                   year: 'numeric',
