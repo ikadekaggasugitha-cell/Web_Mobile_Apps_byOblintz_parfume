@@ -9,7 +9,7 @@ importers:
   .:
     devDependencies:
       prisma:
-        specifier: ^8.0.0-rc.12
+        specifier: 8.0.0-rc.12
         version: 8.0.0-rc.12(typanion@3.14.0)(vite@8.2.2)(vitest@4.1.11)
 
   apps/admin:
@@ -103,7 +103,7 @@ importers:
         specifier: ^3.0.0
         version: 3.1.0
       '@prisma/client':
-        specifier: ^5.8.1
+        specifier: 5.22.0
         version: 5.22.0(prisma@5.22.0)
       '@sendgrid/mail':
         specifier: ^8.1.6
@@ -143,7 +143,7 @@ importers:
         specifier: 1.6.1
         version: 1.6.1(vitest@1.6.1)
       prisma:
-        specifier: ^5.8.1
+        specifier: 5.22.0
         version: 5.22.0
       tsx:
         specifier: ^4.7.0
