@@ -56,8 +56,8 @@ export const config = {
   
   cors: {
     origin: [
-      process.env.APP_URL || 'http://localhost:3000',
-      process.env.ADMIN_URL || 'http://localhost:3001',
+      ...(process.env.APP_URL || 'http://localhost:3000').split(','),
+      ...(process.env.ADMIN_URL || 'http://localhost:3001').split(','),
     ],
     credentials: true,
   },
