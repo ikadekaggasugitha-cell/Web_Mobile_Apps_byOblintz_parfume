@@ -1,7 +1,8 @@
 import { FastifyInstance } from 'fastify';
 import bcrypt from 'bcrypt';
 import prisma from '../../config/database';
-import { requireAuth } from '../../middleware/auth';
+import { requireAuth, requireAdmin } from '../../middleware/auth';
+import { handleRouteError } from '../../lib/errors';
 
 export async function userRoutes(app: FastifyInstance) {
   // ==================== GET PROFILE ====================
@@ -245,6 +246,243 @@ export async function userRoutes(app: FastifyInstance) {
     return reply.status(200).send({
       success: true,
       data: { message: 'Alamat berhasil dihapus' },
+    });
+  });
+
+  // ==================== ADMIN: LIST ALL USERS ====================
+  app.get('/admin/all', {
+    preHandler: [requireAdmin],
+  }, async (request, reply) => {
+    const { page = '1', limit = '20', search, role } = request.query as {
+      page?: string;
+      limit?: string;
+      search?: string;
+      role?: string;
+    };
+
+    const pageNum = Math.max(1, parseInt(page));
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit)));
+    const skip = (pageNum - 1) * limitNum;
+
+    const where: any = {};
+    if (role) where.role = role;
+    if (search) {
+      where.OR = [
+        { name: { contains: search, mode: 'insensitive' } },
+        { email: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
+    const [users, total] = await Promise.all([
+      prisma.user.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limitNum,
+        select: {
+          id: true,
+          email: true,
+          phone: true,
+          name: true,
+          avatar: true,
+          role: true,
+          banned: true,
+          emailVerified: true,
+          createdAt: true,
+          _count: { select: { orders: true, subscriptions: true } },
+        },
+      }),
+      prisma.user.count({ where }),
+    ]);
+
+    return reply.status(200).send({
+      success: true,
+      data: {
+        users,
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          total,
+          totalPages: Math.ceil(total / limitNum),
+        },
+      },
+    });
+  });
+
+  // ==================== ADMIN: GET USER DETAIL ====================
+  app.get('/admin/:id', {
+    preHandler: [requireAdmin],
+  }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+
+    const user = await prisma.user.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        email: true,
+        phone: true,
+        name: true,
+        avatar: true,
+        role: true,
+        banned: true,
+        emailVerified: true,
+        phoneVerified: true,
+        createdAt: true,
+        updatedAt: true,
+        _count: { select: { orders: true, subscriptions: true, reviews: true } },
+      },
+    });
+
+    if (!user) {
+      return reply.status(404).send({
+        success: false,
+        error: { code: 'NOT_FOUND', message: 'User tidak ditemukan' },
+      });
+    }
+
+    const orders = await prisma.order.findMany({
+      where: { userId: id },
+      orderBy: { createdAt: 'desc' },
+      take: 10,
+      select: {
+        id: true,
+        orderNumber: true,
+        status: true,
+        totalAmount: true,
+        createdAt: true,
+      },
+    });
+
+    return reply.status(200).send({
+      success: true,
+      data: { ...user, orders },
+    });
+  });
+
+  // ==================== ADMIN: UPDATE USER ====================
+  app.put('/admin/:id', {
+    preHandler: [requireAdmin],
+  }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const { name, email, phone } = request.body as {
+      name?: string;
+      email?: string;
+      phone?: string;
+    };
+
+    const existing = await prisma.user.findUnique({ where: { id } });
+    if (!existing) {
+      return reply.status(404).send({
+        success: false,
+        error: { code: 'NOT_FOUND', message: 'User tidak ditemukan' },
+      });
+    }
+
+    try {
+      const updated = await prisma.user.update({
+        where: { id },
+        data: {
+          ...(name !== undefined && { name }),
+          ...(email !== undefined && { email }),
+          ...(phone !== undefined && { phone }),
+        },
+        select: {
+          id: true,
+          email: true,
+          phone: true,
+          name: true,
+          role: true,
+          banned: true,
+        },
+      });
+
+      return reply.status(200).send({ success: true, data: updated });
+    } catch (error) {
+      return handleRouteError(error, reply);
+    }
+  });
+
+  // ==================== ADMIN: UPDATE USER ROLE ====================
+  app.put('/admin/:id/role', {
+    preHandler: [requireAdmin],
+  }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const { role } = request.body as { role: string };
+
+    if (!['USER', 'ADMIN', 'SUPER_ADMIN'].includes(role)) {
+      return reply.status(400).send({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'Role tidak valid' },
+      });
+    }
+
+    const existing = await prisma.user.findUnique({ where: { id } });
+    if (!existing) {
+      return reply.status(404).send({
+        success: false,
+        error: { code: 'NOT_FOUND', message: 'User tidak ditemukan' },
+      });
+    }
+
+    // Prevent self-promotion to SUPER_ADMIN
+    if (request.userId === id && role === 'SUPER_ADMIN' && existing.role !== 'SUPER_ADMIN') {
+      return reply.status(403).send({
+        success: false,
+        error: { code: 'FORBIDDEN', message: 'Tidak bisa promosi diri sendiri ke Super Admin' },
+      });
+    }
+
+    const updated = await prisma.user.update({
+      where: { id },
+      data: { role: role as any },
+      select: { id: true, name: true, email: true, role: true },
+    });
+
+    return reply.status(200).send({ success: true, data: updated });
+  });
+
+  // ==================== ADMIN: BAN/UNBAN USER ====================
+  app.put('/admin/:id/ban', {
+    preHandler: [requireAdmin],
+  }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+
+    const existing = await prisma.user.findUnique({ where: { id } });
+    if (!existing) {
+      return reply.status(404).send({
+        success: false,
+        error: { code: 'NOT_FOUND', message: 'User tidak ditemukan' },
+      });
+    }
+
+    // Prevent banning a SUPER_ADMIN
+    if (existing.role === 'SUPER_ADMIN') {
+      return reply.status(403).send({
+        success: false,
+        error: { code: 'FORBIDDEN', message: 'Tidak bisa memblokir Super Admin' },
+      });
+    }
+
+    // Prevent self-ban
+    if (request.userId === id) {
+      return reply.status(403).send({
+        success: false,
+        error: { code: 'FORBIDDEN', message: 'Tidak bisa memblokir diri sendiri' },
+      });
+    }
+
+    const updated = await prisma.user.update({
+      where: { id },
+      data: { banned: !existing.banned },
+      select: { id: true, name: true, email: true, banned: true },
+    });
+
+    return reply.status(200).send({
+      success: true,
+      data: {
+        ...updated,
+        message: updated.banned ? 'User berhasil diblokir' : 'User berhasil dibuka blokirnya',
+      },
     });
   });
 }

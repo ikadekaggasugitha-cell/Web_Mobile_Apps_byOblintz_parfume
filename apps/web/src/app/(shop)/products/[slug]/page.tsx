@@ -2,8 +2,9 @@ import { Metadata } from 'next';
 import { ProductClient } from './ProductClient';
 import { JsonLd } from '@/components/seo/JsonLd';
 import { resolveImages } from '@/lib/utils';
+import { getApiBaseUrl } from '@/lib/apiBase';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+const API_URL = getApiBaseUrl();
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://oblintz.com';
 
 interface ProductMeta {

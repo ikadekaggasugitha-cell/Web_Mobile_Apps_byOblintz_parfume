@@ -12,6 +12,36 @@ if (nodeEnv === 'production') {
   }
 }
 
+// Explicit origins from env (used as the strict allowlist in production).
+const explicitOrigins = [
+  ...(process.env.APP_URL || 'http://localhost:3000').split(','),
+  ...(process.env.ADMIN_URL || 'http://localhost:3001').split(','),
+]
+  .map((o) => o.trim())
+  .filter(Boolean);
+
+// Matches localhost and private-LAN addresses (192.168.x, 10.x, 172.16–31.x) on
+// any port. In development this lets any device on the same WiFi reach the API
+// without hardcoding an IP into the CORS allowlist.
+const lanOriginRegex =
+  /^https?:\/\/(localhost|127\.0\.0\.1|192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})(:\d+)?$/;
+
+type CorsOriginResolver = (
+  origin: string | undefined,
+  cb: (err: Error | null, allow: boolean) => void
+) => void;
+
+const corsOrigin: string[] | CorsOriginResolver =
+  nodeEnv === 'production'
+    ? explicitOrigins
+    : (origin, cb) => {
+        // No Origin header = same-origin or server-to-server request; allow it.
+        if (!origin || explicitOrigins.includes(origin) || lanOriginRegex.test(origin)) {
+          return cb(null, true);
+        }
+        return cb(null, false);
+      };
+
 export const config = {
   port: parseInt(process.env.API_PORT || '5000', 10),
   host: process.env.API_HOST || '0.0.0.0',
@@ -55,10 +85,7 @@ export const config = {
   },
   
   cors: {
-    origin: [
-      ...(process.env.APP_URL || 'http://localhost:3000').split(','),
-      ...(process.env.ADMIN_URL || 'http://localhost:3001').split(','),
-    ],
+    origin: corsOrigin,
     credentials: true,
   },
 };

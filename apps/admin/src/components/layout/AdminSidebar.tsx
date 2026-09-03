@@ -8,7 +8,11 @@ const menuItems = [
   { href: '/dashboard', label: 'Dashboard', icon: '📊' },
   { href: '/products', label: 'Products', icon: '📦' },
   { href: '/orders', label: 'Orders', icon: '🛒' },
-  { href: '/content', label: 'Content', icon: '📝' },
+  { href: '/users', label: 'Users', icon: '👥' },
+  { href: '/content/banners', label: 'Banners', icon: '🖼️' },
+  { href: '/content/articles', label: 'Articles', icon: '📰' },
+  { href: '/content/faq', label: 'FAQ', icon: '❓' },
+  { href: '/promos', label: 'Promos', icon: '🏷️' },
   { href: '/reports', label: 'Reports', icon: '📈' },
   { href: '/settings', label: 'Settings', icon: '⚙️' },
 ];

@@ -88,6 +88,7 @@ model User {
   role          UserRole @default(USER)
   emailVerified Boolean  @default(false) @map("email_verified")
   phoneVerified Boolean  @default(false) @map("phone_verified")
+  banned        Boolean  @default(false) @map("banned")
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
 
@@ -445,4 +446,18 @@ model Article {
 
   @@index([status, createdAt])
   @@map("articles")
+}
+
+model Faq {
+  id        String   @id @default(uuid()) @db.Uuid
+  question  String   @db.Text
+  answer    String   @db.Text
+  category  String?  @db.VarChar(100)
+  sortOrder Int      @default(0) @map("sort_order")
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([isActive, sortOrder])
+  @@map("faqs")
 }

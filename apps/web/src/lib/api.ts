@@ -1,9 +1,8 @@
 import axios from 'axios';
-
-const apiURL = process.env.NEXT_PUBLIC_API_URL;
+import { getApiBaseUrl } from './apiBase';
 
 const api = axios.create({
-  baseURL: apiURL || 'http://localhost:5000',
+  baseURL: getApiBaseUrl(),
   headers: {
     'Content-Type': 'application/json',
   },
@@ -12,9 +11,6 @@ const api = axios.create({
 
 api.interceptors.request.use(
   (config) => {
-    if (!apiURL && typeof window !== 'undefined') {
-      console.warn('NEXT_PUBLIC_API_URL is not set. Using fallback.');
-    }
     if (typeof window !== 'undefined') {
       const token = localStorage.getItem('accessToken');
       if (token) {
@@ -40,7 +36,7 @@ api.interceptors.response.use(
         const refreshToken = localStorage.getItem('refreshToken');
         if (refreshToken) {
           const { data } = await axios.post(
-            `${apiURL || 'http://localhost:5000'}/api/auth/refresh`,
+            `${getApiBaseUrl()}/api/auth/refresh`,
             { refreshToken }
           );
 

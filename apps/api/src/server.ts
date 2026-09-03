@@ -27,6 +27,7 @@ import { subscriptionRoutes } from './modules/subscription/subscription.routes';
 import { articleRoutes } from './modules/article/article.routes';
 import { bannerRoutes } from './modules/banner/banner.routes';
 import { reportRoutes } from './modules/report/report.routes';
+import { faqRoutes } from './modules/faq/faq.routes';
 
 const server = Fastify({
   logger: {
@@ -133,7 +134,7 @@ server.addHook('onResponse', async (request, reply) => {
 
 async function bootstrap() {
   // Register plugins
-  await server.register(cors, config.cors);
+  await server.register(cors, config.cors as Parameters<typeof cors>[1]);
 
   await server.register(helmet, {
     contentSecurityPolicy: false,
@@ -221,6 +222,7 @@ async function bootstrap() {
   await server.register(articleRoutes, { prefix: '/api/articles' });
   await server.register(bannerRoutes, { prefix: '/api/banners' });
   await server.register(reportRoutes, { prefix: '/api/reports' });
+  await server.register(faqRoutes, { prefix: '/api/faq' });
 
   // Start server
   try {

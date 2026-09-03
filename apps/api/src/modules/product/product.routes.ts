@@ -276,6 +276,27 @@ export async function productRoutes(app: FastifyInstance) {
     });
   });
 
+  // ==================== ADMIN: GET PRODUCT BY ID ====================
+  app.get('/admin/:id', {
+    preHandler: [requireAdmin],
+  }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+
+    const product = await prisma.product.findUnique({
+      where: { id },
+      include: { category: true },
+    });
+
+    if (!product) {
+      return reply.status(404).send({
+        success: false,
+        error: { code: 'NOT_FOUND', message: 'Produk tidak ditemukan' },
+      });
+    }
+
+    return reply.status(200).send({ success: true, data: product });
+  });
+
   // ==================== ADMIN: LIST ALL PRODUCTS ====================
   app.get('/admin/all', {
     preHandler: [requireAdmin],

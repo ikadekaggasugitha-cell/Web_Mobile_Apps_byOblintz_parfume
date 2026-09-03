@@ -1,10 +1,11 @@
 import { MetadataRoute } from 'next';
+import { getApiBaseUrl } from '@/lib/apiBase';
 
 const BASE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://oblintz.com';
 
 async function getProducts(): Promise<{ slug: string; updatedAt: string }[]> {
   try {
-    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'}/api/products?limit=100&sort=newest`, {
+    const res = await fetch(`${getApiBaseUrl()}/api/products?limit=100&sort=newest`, {
       next: { revalidate: 3600 },
     });
     if (!res.ok) return [];

@@ -1,9 +1,8 @@
 import axios from 'axios';
-
-const apiURL = process.env.NEXT_PUBLIC_API_URL;
+import { getApiBaseUrl } from './apiBase';
 
 const api = axios.create({
-  baseURL: apiURL || 'http://localhost:5000',
+  baseURL: getApiBaseUrl(),
   timeout: 10000,
 });
 
@@ -29,7 +28,7 @@ api.interceptors.response.use(
         const refreshToken = localStorage.getItem('adminRefreshToken');
         if (refreshToken) {
           const { data } = await axios.post(
-            `${apiURL || 'http://localhost:5000'}/api/auth/refresh`,
+            `${getApiBaseUrl()}/api/auth/refresh`,
             { refreshToken }
           );
 
