@@ -112,14 +112,23 @@ export default function AdminBannersPage() {
 
   const onSubmit = useCallback(async (data: BannerInput) => {
     const token = localStorage.getItem('adminAccessToken');
+    // Omit blank optional fields so the API's URL validation doesn't reject ''.
+    const payload = {
+      title: data.title,
+      imageUrl: data.imageUrl,
+      position: data.position,
+      isActive: data.isActive,
+      ...(data.subtitle?.trim() ? { subtitle: data.subtitle.trim() } : {}),
+      ...(data.link?.trim() ? { link: data.link.trim() } : {}),
+    };
     try {
       if (editingBanner) {
-        await api.put(`/api/banners/admin/${editingBanner.id}`, data, {
+        await api.put(`/api/banners/admin/${editingBanner.id}`, payload, {
           headers: { Authorization: `Bearer ${token}` },
         });
         success('Banner berhasil diupdate');
       } else {
-        await api.post('/api/banners/admin', data, {
+        await api.post('/api/banners/admin', payload, {
           headers: { Authorization: `Bearer ${token}` },
         });
         success('Banner berhasil ditambahkan');

@@ -4,13 +4,16 @@ import { db } from '../../db';
 import { banners } from '../../db/schema';
 import { handleRouteError } from '../../lib/errors';
 import { requireAuth, requireAdmin } from '../../middleware/auth';
+import { optionalUrl } from '../../lib/validation';
 import { z } from 'zod';
 
 const bannerSchema = z.object({
   title: z.string().min(1).max(100),
   subtitle: z.string().max(200).optional(),
   imageUrl: z.string().url(),
-  link: z.string().url().optional(),
+  // Optional URL fields arrive from the admin form as '' when left blank;
+  // `optionalUrl` treats '' as undefined so an empty Link doesn't 400 the save.
+  link: optionalUrl,
   position: z.string().default('home'),
   sortOrder: z.number().int().optional(),
   isActive: z.boolean().default(true),
