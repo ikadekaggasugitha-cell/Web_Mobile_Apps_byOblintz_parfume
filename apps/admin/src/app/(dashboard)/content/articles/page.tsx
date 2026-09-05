@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Plus, Search, Pencil, Trash2, Newspaper } from 'lucide-react';
+import { Plus, Search, Pencil, Trash2, Newspaper, RotateCcw } from 'lucide-react';
 import { api } from '@/lib/api';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
@@ -19,7 +19,10 @@ interface Article {
   status: string;
   author: string;
   createdAt: string;
+  deletedAt?: string | null;
 }
+
+type View = 'active' | 'trash';
 
 const articleSchema = z.object({
   title: z.string().min(1, 'Judul wajib diisi'),
@@ -45,10 +48,12 @@ export default function AdminArticlesPage() {
   const [statusFilter, setStatusFilter] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [editingArticle, setEditingArticle] = useState<Article | null>(null);
-  const [deleteConfirm, setDeleteConfirm] = useState<{ open: boolean; id: string | null }>({
-    open: false,
-    id: null,
-  });
+  const [view, setView] = useState<View>('active');
+  const [confirm, setConfirm] = useState<{
+    open: boolean;
+    id: string | null;
+    mode: 'soft' | 'permanent';
+  }>({ open: false, id: null, mode: 'soft' });
 
   const {
     register,
@@ -60,21 +65,25 @@ export default function AdminArticlesPage() {
     defaultValues: DEFAULT_VALUES,
   });
 
+  const buildParams = useCallback(() => {
+    const params = new URLSearchParams();
+    if (search) params.set('search', search);
+    if (statusFilter) params.set('status', statusFilter);
+    if (view === 'trash') params.set('deleted', 'true');
+    return params;
+  }, [search, statusFilter, view]);
+
   const refreshArticles = useCallback(async () => {
     const token = localStorage.getItem('adminAccessToken');
     try {
-      const params = new URLSearchParams();
-      if (search) params.set('search', search);
-      if (statusFilter) params.set('status', statusFilter);
-
-      const response = await api.get(`/api/articles/admin/all?${params}`, {
+      const response = await api.get(`/api/articles/admin/all?${buildParams()}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       setArticles(response.data.data.articles);
     } catch (error) {
       console.error('Gagal memuat artikel:', error);
     }
-  }, [search, statusFilter]);
+  }, [buildParams]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -83,11 +92,7 @@ export default function AdminArticlesPage() {
       setIsLoading(true);
       const token = localStorage.getItem('adminAccessToken');
       try {
-        const params = new URLSearchParams();
-        if (search) params.set('search', search);
-        if (statusFilter) params.set('status', statusFilter);
-
-        const response = await api.get(`/api/articles/admin/all?${params}`, {
+        const response = await api.get(`/api/articles/admin/all?${buildParams()}`, {
           headers: { Authorization: `Bearer ${token}` },
           signal: controller.signal,
         });
@@ -104,7 +109,7 @@ export default function AdminArticlesPage() {
     fetchData();
 
     return () => controller.abort();
-  }, [statusFilter, search]);
+  }, [buildParams]);
 
   const onSubmit = useCallback(async (data: ArticleInput) => {
     const token = localStorage.getItem('adminAccessToken');
@@ -130,23 +135,41 @@ export default function AdminArticlesPage() {
     }
   }, [editingArticle, reset, refreshArticles, success, showError]);
 
-  const handleDeleteConfirm = useCallback(async () => {
-    if (!deleteConfirm.id) return;
+  const handleConfirm = useCallback(async () => {
+    if (!confirm.id) return;
 
     const token = localStorage.getItem('adminAccessToken');
+    const headers = { Authorization: `Bearer ${token}` };
     try {
-      await api.delete(`/api/articles/admin/${deleteConfirm.id}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      if (confirm.mode === 'permanent') {
+        await api.delete(`/api/articles/admin/${confirm.id}/permanent`, { headers });
+        success('Artikel dihapus permanen');
+      } else {
+        await api.delete(`/api/articles/admin/${confirm.id}`, { headers });
+        success('Artikel dipindahkan ke sampah');
+      }
       refreshArticles();
-      success('Artikel berhasil dihapus');
     } catch (error) {
       console.error('Gagal hapus:', error);
       showError('Gagal menghapus artikel');
     } finally {
-      setDeleteConfirm({ open: false, id: null });
+      setConfirm({ open: false, id: null, mode: 'soft' });
     }
-  }, [deleteConfirm.id, refreshArticles, success, showError]);
+  }, [confirm.id, confirm.mode, refreshArticles, success, showError]);
+
+  const handleRestore = useCallback(async (id: string) => {
+    const token = localStorage.getItem('adminAccessToken');
+    try {
+      await api.post(`/api/articles/admin/${id}/restore`, undefined, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      refreshArticles();
+      success('Artikel berhasil dipulihkan');
+    } catch (error) {
+      console.error('Gagal pulihkan:', error);
+      showError('Gagal memulihkan artikel');
+    }
+  }, [refreshArticles, success, showError]);
 
   const handleOpenModal = useCallback((article?: Article) => {
     if (article) {
@@ -174,21 +197,45 @@ export default function AdminArticlesPage() {
     <div className="space-y-6">
       <ToastContainer toasts={toasts} />
       <ConfirmDialog
-        isOpen={deleteConfirm.open}
-        onConfirm={handleDeleteConfirm}
-        onCancel={() => setDeleteConfirm({ open: false, id: null })}
-        title="Hapus Artikel"
-        message="Yakin ingin menghapus artikel ini? Tindakan ini tidak dapat dibatalkan."
-        confirmLabel="Hapus"
+        isOpen={confirm.open}
+        onConfirm={handleConfirm}
+        onCancel={() => setConfirm({ open: false, id: null, mode: 'soft' })}
+        title={confirm.mode === 'permanent' ? 'Hapus Permanen Artikel' : 'Pindahkan ke Sampah'}
+        message={
+          confirm.mode === 'permanent'
+            ? 'Artikel akan dihapus permanen dari database dan TIDAK dapat dipulihkan. Lanjutkan?'
+            : 'Artikel akan dipindahkan ke Sampah. Anda masih dapat memulihkannya nanti.'
+        }
+        confirmLabel={confirm.mode === 'permanent' ? 'Hapus Permanen' : 'Pindahkan'}
         variant="danger"
       />
 
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-slate-500">Kelola artikel blog dan konten editorial.</p>
-        <button onClick={() => handleOpenModal()} className="btn-primary">
-          <Plus className="h-4 w-4" strokeWidth={2.25} />
-          Tambah Artikel
-        </button>
+        <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5">
+          <button
+            onClick={() => setView('active')}
+            className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+              view === 'active' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            Aktif
+          </button>
+          <button
+            onClick={() => setView('trash')}
+            className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+              view === 'trash' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
+            Sampah
+          </button>
+        </div>
+        {view === 'active' && (
+          <button onClick={() => handleOpenModal()} className="btn-primary">
+            <Plus className="h-4 w-4" strokeWidth={2.25} />
+            Tambah Artikel
+          </button>
+        )}
       </div>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -228,9 +275,13 @@ export default function AdminArticlesPage() {
             <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
               <Newspaper className="h-6 w-6" strokeWidth={1.75} />
             </div>
-            <p className="text-sm font-medium text-slate-900">Tidak ada artikel</p>
+            <p className="text-sm font-medium text-slate-900">
+              {view === 'trash' ? 'Sampah kosong' : 'Tidak ada artikel'}
+            </p>
             <p className="mt-1 text-sm text-slate-500">
-              Coba ubah kata kunci atau filter status.
+              {view === 'trash'
+                ? 'Artikel yang dihapus akan muncul di sini.'
+                : 'Coba ubah kata kunci atau filter status.'}
             </p>
           </div>
         ) : (
@@ -262,20 +313,41 @@ export default function AdminArticlesPage() {
                     <td className="td tabular-nums text-slate-500">{new Date(article.createdAt).toLocaleDateString('id-ID')}</td>
                     <td className="td">
                       <div className="flex items-center justify-end gap-1">
-                        <button
-                          onClick={() => handleOpenModal(article)}
-                          className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900"
-                        >
-                          <Pencil className="h-4 w-4" strokeWidth={2} />
-                          Edit
-                        </button>
-                        <button
-                          onClick={() => setDeleteConfirm({ open: true, id: article.id })}
-                          className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-red-600 transition-colors hover:bg-red-50"
-                        >
-                          <Trash2 className="h-4 w-4" strokeWidth={2} />
-                          Hapus
-                        </button>
+                        {view === 'trash' ? (
+                          <>
+                            <button
+                              onClick={() => handleRestore(article.id)}
+                              className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-green-700 transition-colors hover:bg-green-50"
+                            >
+                              <RotateCcw className="h-4 w-4" strokeWidth={2} />
+                              Pulihkan
+                            </button>
+                            <button
+                              onClick={() => setConfirm({ open: true, id: article.id, mode: 'permanent' })}
+                              className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-red-600 transition-colors hover:bg-red-50"
+                            >
+                              <Trash2 className="h-4 w-4" strokeWidth={2} />
+                              Hapus Permanen
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button
+                              onClick={() => handleOpenModal(article)}
+                              className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900"
+                            >
+                              <Pencil className="h-4 w-4" strokeWidth={2} />
+                              Edit
+                            </button>
+                            <button
+                              onClick={() => setConfirm({ open: true, id: article.id, mode: 'soft' })}
+                              className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-red-600 transition-colors hover:bg-red-50"
+                            >
+                              <Trash2 className="h-4 w-4" strokeWidth={2} />
+                              Hapus
+                            </button>
+                          </>
+                        )}
                       </div>
                     </td>
                   </tr>

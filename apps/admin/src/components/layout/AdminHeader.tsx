@@ -11,6 +11,7 @@ interface AdminHeaderProps {
 const TITLES: Array<{ match: string; label: string }> = [
   { match: '/dashboard', label: 'Dashboard' },
   { match: '/products', label: 'Produk' },
+  { match: '/categories', label: 'Kategori' },
   { match: '/stock', label: 'Rekap Stok' },
   { match: '/promos', label: 'Promo' },
   { match: '/orders', label: 'Pesanan' },

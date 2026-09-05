@@ -4,7 +4,6 @@ import { sql } from 'drizzle-orm';
 
 const tables = [
   'audit_logs',
-  'admin_users',
   'quiz_results',
   'subscriptions',
   'collection_items',

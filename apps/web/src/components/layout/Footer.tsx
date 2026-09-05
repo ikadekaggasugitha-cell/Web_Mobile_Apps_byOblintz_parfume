@@ -12,11 +12,16 @@ const ACCOUNT_LINKS = [
   { href: '/account/orders', label: 'Pesanan Saya' },
 ];
 
+const HELP_LINKS = [
+  { href: '/articles', label: 'Jurnal' },
+  { href: '/faq', label: 'FAQ' },
+];
+
 export function Footer() {
   return (
     <footer className="border-t border-line bg-sand">
       <div className="container mx-auto px-4 py-16 sm:px-6">
-        <div className="grid grid-cols-2 gap-10 md:grid-cols-4 md:gap-8">
+        <div className="grid grid-cols-2 gap-10 md:grid-cols-5 md:gap-8">
           <div className="col-span-2 md:col-span-1">
             <p className="font-serif text-xl font-semibold tracking-[0.18em] text-espresso">
               OBLINTZ
@@ -51,6 +56,24 @@ export function Footer() {
             </h4>
             <ul className="mt-4 space-y-3 text-sm text-warmgray">
               {ACCOUNT_LINKS.map((link) => (
+                <li key={link.href}>
+                  <Link
+                    href={link.href}
+                    className="transition-colors hover:text-primary-600"
+                  >
+                    {link.label}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <div>
+            <h4 className="text-xs font-medium uppercase tracking-luxe text-gold-600">
+              Bantuan
+            </h4>
+            <ul className="mt-4 space-y-3 text-sm text-warmgray">
+              {HELP_LINKS.map((link) => (
                 <li key={link.href}>
                   <Link
                     href={link.href}

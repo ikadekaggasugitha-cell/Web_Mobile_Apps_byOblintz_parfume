@@ -1,34 +1,29 @@
 import 'dotenv/config';
 import { db } from '../src/db';
-import { adminUsers, users, categories, products } from '../src/db/schema';
+import { users, categories, products } from '../src/db/schema';
 import { sql } from 'drizzle-orm';
 import bcrypt from 'bcrypt';
 
 async function main() {
   console.log('Seeding database...');
 
-  // Create admin user
+  // Create admin user. Admins live in the `users` table with an elevated role —
+  // that's what /api/auth/login authenticates against and requireAdmin checks.
   const adminPasswordHash = await bcrypt.hash('admin123', 12);
   const existingAdmin = await db
     .select()
-    .from(adminUsers)
-    .where(sql`${adminUsers.email} = 'admin@oblintz.com'`)
+    .from(users)
+    .where(sql`${users.email} = 'admin@oblintz.com'`)
     .limit(1);
 
   if (existingAdmin[0]) {
     console.log('Admin user already exists:', existingAdmin[0].email);
   } else {
-    const [admin] = await db.insert(adminUsers).values({
+    const [admin] = await db.insert(users).values({
       email: 'admin@oblintz.com',
       passwordHash: adminPasswordHash,
       name: 'Super Admin',
       role: 'SUPER_ADMIN',
-      permissions: {
-        products: ['create', 'read', 'update', 'delete'],
-        orders: ['read', 'update'],
-        users: ['read', 'update'],
-        settings: ['read', 'update'],
-      },
     }).returning();
     console.log('Admin user created:', admin.email);
   }

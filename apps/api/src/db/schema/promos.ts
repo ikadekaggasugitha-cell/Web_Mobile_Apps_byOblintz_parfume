@@ -16,6 +16,7 @@ export const promoCodes = pgTable(
     startDate: timestamp('start_date'),
     endDate: timestamp('end_date'),
     status: promoCodeStatusEnum('status').default('ACTIVE').notNull(),
+    deletedAt: timestamp('deleted_at'),
     createdAt: timestamp('created_at').defaultNow().notNull(),
   },
   (t) => [

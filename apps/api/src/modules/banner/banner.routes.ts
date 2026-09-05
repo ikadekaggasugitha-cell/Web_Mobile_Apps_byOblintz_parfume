@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify';
-import { eq, desc, asc, sql } from 'drizzle-orm';
+import { eq, desc, asc, sql, and, isNull, isNotNull } from 'drizzle-orm';
 import { db } from '../../db';
 import { banners } from '../../db/schema';
 import { handleRouteError } from '../../lib/errors';
@@ -29,7 +29,7 @@ export async function bannerRoutes(app: FastifyInstance) {
         position: banners.position,
       })
       .from(banners)
-      .where(eq(banners.isActive, true))
+      .where(and(eq(banners.isActive, true), isNull(banners.deletedAt)))
       .orderBy(asc(banners.sortOrder));
 
     return reply.status(200).send({ success: true, data: activeBanners });
@@ -39,9 +39,15 @@ export async function bannerRoutes(app: FastifyInstance) {
   app.get('/admin/all', {
     preHandler: [requireAdmin],
   }, async (request, reply) => {
+    const { deleted } = request.query as { deleted?: string };
+
+    // `?deleted=true` returns only trashed rows; otherwise only active rows.
+    const where = deleted === 'true' ? isNotNull(banners.deletedAt) : isNull(banners.deletedAt);
+
     const allBanners = await db
       .select()
       .from(banners)
+      .where(where)
       .orderBy(asc(banners.sortOrder));
 
     return reply.status(200).send({ success: true, data: allBanners });
@@ -122,8 +128,68 @@ export async function bannerRoutes(app: FastifyInstance) {
     }
   });
 
-  // ==================== ADMIN: DELETE BANNER ====================
+  // ==================== ADMIN: SOFT DELETE BANNER (MOVE TO TRASH) ====================
   app.delete('/admin/:id', {
+    preHandler: [requireAdmin],
+  }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+
+    const [existing] = await db
+      .select()
+      .from(banners)
+      .where(eq(banners.id, id))
+      .limit(1);
+
+    if (!existing) {
+      return reply.status(404).send({
+        success: false,
+        error: { code: 'NOT_FOUND', message: 'Banner tidak ditemukan' },
+      });
+    }
+
+    await db
+      .update(banners)
+      .set({ deletedAt: new Date() })
+      .where(eq(banners.id, id));
+
+    return reply.status(200).send({
+      success: true,
+      data: { message: 'Banner dipindahkan ke sampah' },
+    });
+  });
+
+  // ==================== ADMIN: RESTORE BANNER FROM TRASH ====================
+  app.post('/admin/:id/restore', {
+    preHandler: [requireAdmin],
+  }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+
+    const [existing] = await db
+      .select()
+      .from(banners)
+      .where(eq(banners.id, id))
+      .limit(1);
+
+    if (!existing) {
+      return reply.status(404).send({
+        success: false,
+        error: { code: 'NOT_FOUND', message: 'Banner tidak ditemukan' },
+      });
+    }
+
+    await db
+      .update(banners)
+      .set({ deletedAt: null })
+      .where(eq(banners.id, id));
+
+    return reply.status(200).send({
+      success: true,
+      data: { message: 'Banner berhasil dipulihkan' },
+    });
+  });
+
+  // ==================== ADMIN: PERMANENT DELETE BANNER ====================
+  app.delete('/admin/:id/permanent', {
     preHandler: [requireAdmin],
   }, async (request, reply) => {
     const { id } = request.params as { id: string };
@@ -145,7 +211,7 @@ export async function bannerRoutes(app: FastifyInstance) {
 
     return reply.status(200).send({
       success: true,
-      data: { message: 'Banner berhasil dihapus' },
+      data: { message: 'Banner dihapus permanen' },
     });
   });
 

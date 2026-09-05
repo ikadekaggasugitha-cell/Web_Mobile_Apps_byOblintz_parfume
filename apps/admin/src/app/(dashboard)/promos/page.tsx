@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Plus, Pencil, Trash2, Power, Ticket } from 'lucide-react';
+import { Plus, Pencil, Trash2, Power, Ticket, RotateCcw } from 'lucide-react';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 import type { Pagination } from '@oblintz/shared';
@@ -44,6 +44,8 @@ const promoSchema = z.object({
 
 type PromoInput = z.infer<typeof promoSchema>;
 
+type View = 'active' | 'trash';
+
 const DEFAULT_VALUES: PromoInput = {
   code: '',
   name: '',
@@ -77,10 +79,12 @@ export default function AdminPromosPage() {
   const [pagination, setPagination] = useState<Pagination | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [editingPromo, setEditingPromo] = useState<Promo | null>(null);
-  const [deleteConfirm, setDeleteConfirm] = useState<{ open: boolean; id: string | null }>({
-    open: false,
-    id: null,
-  });
+  const [view, setView] = useState<View>('active');
+  const [confirm, setConfirm] = useState<{
+    open: boolean;
+    id: string | null;
+    mode: 'soft' | 'permanent';
+  }>({ open: false, id: null, mode: 'soft' });
 
   const {
     register,
@@ -102,7 +106,8 @@ export default function AdminPromosPage() {
         page: page.toString(),
         limit: '20',
       });
-      if (statusFilter) params.set('status', statusFilter);
+      if (view === 'trash') params.set('deleted', 'true');
+      else if (statusFilter) params.set('status', statusFilter);
 
       const response = await api.get(`/api/promos/admin/all?${params}`, { signal });
       setPromos(response.data.data.promos);
@@ -114,7 +119,7 @@ export default function AdminPromosPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [statusFilter]);
+  }, [statusFilter, view]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -157,19 +162,35 @@ export default function AdminPromosPage() {
     }
   }, [editingPromo, reset, refreshPromos, success, showError]);
 
-  const handleDeleteConfirm = useCallback(async () => {
-    if (!deleteConfirm.id) return;
+  const handleConfirm = useCallback(async () => {
+    if (!confirm.id) return;
     try {
-      await api.delete(`/api/promos/admin/${deleteConfirm.id}`);
+      if (confirm.mode === 'permanent') {
+        await api.delete(`/api/promos/admin/${confirm.id}/permanent`);
+        success('Promo dihapus permanen');
+      } else {
+        await api.delete(`/api/promos/admin/${confirm.id}`);
+        success('Promo dipindahkan ke sampah');
+      }
       refreshPromos();
-      success('Promo berhasil dihapus');
     } catch (err) {
       console.error('Gagal hapus:', err);
       showError('Gagal menghapus promo');
     } finally {
-      setDeleteConfirm({ open: false, id: null });
+      setConfirm({ open: false, id: null, mode: 'soft' });
     }
-  }, [deleteConfirm.id, refreshPromos, success, showError]);
+  }, [confirm.id, confirm.mode, refreshPromos, success, showError]);
+
+  const handleRestore = useCallback(async (id: string) => {
+    try {
+      await api.post(`/api/promos/admin/${id}/restore`);
+      refreshPromos();
+      success('Promo berhasil dipulihkan');
+    } catch (err) {
+      console.error('Gagal pulihkan:', err);
+      showError('Gagal memulihkan promo');
+    }
+  }, [refreshPromos, success, showError]);
 
   const handleToggleStatus = useCallback(async (promo: Promo) => {
     try {
@@ -222,36 +243,62 @@ export default function AdminPromosPage() {
     <div className="space-y-6">
       <ToastContainer toasts={toasts} />
       <ConfirmDialog
-        isOpen={deleteConfirm.open}
-        onConfirm={handleDeleteConfirm}
-        onCancel={() => setDeleteConfirm({ open: false, id: null })}
-        title="Hapus Promo"
-        message="Yakin ingin menghapus promo ini? Tindakan ini tidak dapat dibatalkan."
-        confirmLabel="Hapus"
+        isOpen={confirm.open}
+        onConfirm={handleConfirm}
+        onCancel={() => setConfirm({ open: false, id: null, mode: 'soft' })}
+        title={confirm.mode === 'permanent' ? 'Hapus Permanen Promo' : 'Pindahkan ke Sampah'}
+        message={
+          confirm.mode === 'permanent'
+            ? 'Promo akan dihapus permanen dari database dan TIDAK dapat dipulihkan. Lanjutkan?'
+            : 'Promo akan dipindahkan ke Sampah. Anda masih dapat memulihkannya nanti.'
+        }
+        confirmLabel={confirm.mode === 'permanent' ? 'Hapus Permanen' : 'Pindahkan'}
         variant="danger"
       />
 
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-slate-500">Kelola kode promo dan diskon.</p>
-        <button onClick={() => handleOpenModal()} className="btn-primary">
-          <Plus className="h-4 w-4" strokeWidth={2.25} />
-          Tambah Promo
-        </button>
+        <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5">
+          <button
+            onClick={() => setView('active')}
+            className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+              view === 'active' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            Aktif
+          </button>
+          <button
+            onClick={() => setView('trash')}
+            className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+              view === 'trash' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
+            Sampah
+          </button>
+        </div>
+        {view === 'active' && (
+          <button onClick={() => handleOpenModal()} className="btn-primary">
+            <Plus className="h-4 w-4" strokeWidth={2.25} />
+            Tambah Promo
+          </button>
+        )}
       </div>
 
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          aria-label="Filter status"
-          className="input sm:w-44"
-        >
-          <option value="">Semua Status</option>
-          <option value="ACTIVE">Aktif</option>
-          <option value="INACTIVE">Nonaktif</option>
-          <option value="EXPIRED">Kedaluwarsa</option>
-        </select>
-      </div>
+      {view === 'active' && (
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            aria-label="Filter status"
+            className="input sm:w-44"
+          >
+            <option value="">Semua Status</option>
+            <option value="ACTIVE">Aktif</option>
+            <option value="INACTIVE">Nonaktif</option>
+            <option value="EXPIRED">Kedaluwarsa</option>
+          </select>
+        </div>
+      )}
 
       <div className="card overflow-hidden">
         {isLoading ? (
@@ -265,9 +312,13 @@ export default function AdminPromosPage() {
             <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
               <Ticket className="h-6 w-6" strokeWidth={1.75} />
             </div>
-            <p className="text-sm font-medium text-slate-900">Tidak ada promo</p>
+            <p className="text-sm font-medium text-slate-900">
+              {view === 'trash' ? 'Sampah kosong' : 'Tidak ada promo'}
+            </p>
             <p className="mt-1 text-sm text-slate-500">
-              Coba ubah filter status atau tambahkan promo baru.
+              {view === 'trash'
+                ? 'Promo yang dihapus akan muncul di sini.'
+                : 'Coba ubah filter status atau tambahkan promo baru.'}
             </p>
           </div>
         ) : (
@@ -307,27 +358,48 @@ export default function AdminPromosPage() {
                     </td>
                     <td className="td">
                       <div className="flex items-center justify-end gap-1">
-                        <button
-                          onClick={() => handleOpenModal(promo)}
-                          className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900"
-                        >
-                          <Pencil className="h-4 w-4" strokeWidth={2} />
-                          Edit
-                        </button>
-                        <button
-                          onClick={() => handleToggleStatus(promo)}
-                          className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900"
-                        >
-                          <Power className="h-4 w-4" strokeWidth={2} />
-                          {promo.status === 'ACTIVE' ? 'Nonaktifkan' : 'Aktifkan'}
-                        </button>
-                        <button
-                          onClick={() => setDeleteConfirm({ open: true, id: promo.id })}
-                          className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-red-600 transition-colors hover:bg-red-50"
-                        >
-                          <Trash2 className="h-4 w-4" strokeWidth={2} />
-                          Hapus
-                        </button>
+                        {view === 'trash' ? (
+                          <>
+                            <button
+                              onClick={() => handleRestore(promo.id)}
+                              className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-green-700 transition-colors hover:bg-green-50"
+                            >
+                              <RotateCcw className="h-4 w-4" strokeWidth={2} />
+                              Pulihkan
+                            </button>
+                            <button
+                              onClick={() => setConfirm({ open: true, id: promo.id, mode: 'permanent' })}
+                              className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-red-600 transition-colors hover:bg-red-50"
+                            >
+                              <Trash2 className="h-4 w-4" strokeWidth={2} />
+                              Hapus Permanen
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button
+                              onClick={() => handleOpenModal(promo)}
+                              className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900"
+                            >
+                              <Pencil className="h-4 w-4" strokeWidth={2} />
+                              Edit
+                            </button>
+                            <button
+                              onClick={() => handleToggleStatus(promo)}
+                              className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900"
+                            >
+                              <Power className="h-4 w-4" strokeWidth={2} />
+                              {promo.status === 'ACTIVE' ? 'Nonaktifkan' : 'Aktifkan'}
+                            </button>
+                            <button
+                              onClick={() => setConfirm({ open: true, id: promo.id, mode: 'soft' })}
+                              className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-red-600 transition-colors hover:bg-red-50"
+                            >
+                              <Trash2 className="h-4 w-4" strokeWidth={2} />
+                              Hapus
+                            </button>
+                          </>
+                        )}
                       </div>
                     </td>
                   </tr>

@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard,
   Package,
+  FolderTree,
   ClipboardList,
   ShoppingCart,
   Users,
@@ -38,6 +39,7 @@ const navGroups: NavGroup[] = [
     title: 'Katalog',
     items: [
       { href: '/products', label: 'Produk', icon: Package },
+      { href: '/categories', label: 'Kategori', icon: FolderTree },
       { href: '/stock', label: 'Rekap Stok', icon: ClipboardList },
       { href: '/promos', label: 'Promo', icon: Tag },
     ],

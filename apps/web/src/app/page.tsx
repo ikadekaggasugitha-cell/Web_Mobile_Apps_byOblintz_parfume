@@ -1,4 +1,4 @@
-import { Hero } from '@/components/home/Hero';
+import { HeroCarousel } from '@/components/home/HeroCarousel';
 import { FeaturedCollections } from '@/components/home/FeaturedCollections';
 import { StatsBar } from '@/components/home/StatsBar';
 import { ValueProps } from '@/components/home/ValueProps';
@@ -41,7 +41,7 @@ export default function Home() {
     <>
       <JsonLd data={organizationJsonLd} />
       <JsonLd data={websiteJsonLd} />
-      <Hero />
+      <HeroCarousel />
       <FeaturedCollections />
       <StatsBar />
       <ValueProps />

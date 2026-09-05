@@ -8,7 +8,7 @@ import { wishlists } from './schema/wishlists'
 import { collections, collectionItems } from './schema/collections'
 import { subscriptions } from './schema/subscriptions'
 import { quizResults } from './schema/quizzes'
-import { adminUsers, auditLogs } from './schema/users'
+import { auditLogs } from './schema/users'
 
 // ==================== USER RELATIONS ====================
 
@@ -113,12 +113,8 @@ export const quizResultsRelations = relations(quizResults, ({ one }) => ({
   product: one(products, { fields: [quizResults.productId], references: [products.id] }),
 }))
 
-// ==================== ADMIN RELATIONS ====================
-
-export const adminUsersRelations = relations(adminUsers, ({ many }) => ({
-  auditLogs: many(auditLogs),
-}))
+// ==================== AUDIT LOG RELATIONS ====================
 
 export const auditLogsRelations = relations(auditLogs, ({ one }) => ({
-  adminUser: one(adminUsers, { fields: [auditLogs.adminUserId], references: [adminUsers.id] }),
+  adminUser: one(users, { fields: [auditLogs.adminUserId], references: [users.id] }),
 }))

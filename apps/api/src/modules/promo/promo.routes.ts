@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify';
-import { eq, desc, count } from 'drizzle-orm';
+import { eq, desc, count, and, isNull, isNotNull } from 'drizzle-orm';
 import { db } from '../../db';
 import { promoCodes } from '../../db/schema';
 import { handleRouteError } from '../../lib/errors';
@@ -15,7 +15,7 @@ export async function promoRoutes(app: FastifyInstance) {
       const [promo] = await db
         .select()
         .from(promoCodes)
-        .where(eq(promoCodes.code, input.code.toUpperCase()))
+        .where(and(eq(promoCodes.code, input.code.toUpperCase()), isNull(promoCodes.deletedAt)))
         .limit(1);
 
       if (!promo) {
@@ -97,17 +97,23 @@ export async function promoRoutes(app: FastifyInstance) {
   app.get('/admin/all', {
     preHandler: [requireAdmin],
   }, async (request, reply) => {
-    const { page = '1', limit = '20', status } = request.query as {
+    const { page = '1', limit = '20', status, deleted } = request.query as {
       page?: string;
       limit?: string;
       status?: string;
+      deleted?: string;
     };
 
     const pageNum = Math.max(1, parseInt(page));
     const limitNum = Math.min(100, Math.max(1, parseInt(limit)));
     const skip = (pageNum - 1) * limitNum;
 
-    const whereClause = status ? eq(promoCodes.status, status as any) : undefined;
+    // `?deleted=true` returns only trashed rows; otherwise only active rows.
+    const conditions = [
+      deleted === 'true' ? isNotNull(promoCodes.deletedAt) : isNull(promoCodes.deletedAt),
+    ];
+    if (status) conditions.push(eq(promoCodes.status, status as any));
+    const whereClause = and(...conditions);
 
     const [promos, [{ total }]] = await Promise.all([
       db
@@ -230,8 +236,68 @@ export async function promoRoutes(app: FastifyInstance) {
     }
   });
 
-  // ==================== ADMIN: DELETE PROMO ====================
+  // ==================== ADMIN: SOFT DELETE PROMO (MOVE TO TRASH) ====================
   app.delete('/admin/:id', {
+    preHandler: [requireAdmin],
+  }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+
+    const [existing] = await db
+      .select()
+      .from(promoCodes)
+      .where(eq(promoCodes.id, id))
+      .limit(1);
+
+    if (!existing) {
+      return reply.status(404).send({
+        success: false,
+        error: { code: 'NOT_FOUND', message: 'Promo tidak ditemukan' },
+      });
+    }
+
+    await db
+      .update(promoCodes)
+      .set({ deletedAt: new Date() })
+      .where(eq(promoCodes.id, id));
+
+    return reply.status(200).send({
+      success: true,
+      data: { message: 'Promo dipindahkan ke sampah' },
+    });
+  });
+
+  // ==================== ADMIN: RESTORE PROMO FROM TRASH ====================
+  app.post('/admin/:id/restore', {
+    preHandler: [requireAdmin],
+  }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+
+    const [existing] = await db
+      .select()
+      .from(promoCodes)
+      .where(eq(promoCodes.id, id))
+      .limit(1);
+
+    if (!existing) {
+      return reply.status(404).send({
+        success: false,
+        error: { code: 'NOT_FOUND', message: 'Promo tidak ditemukan' },
+      });
+    }
+
+    await db
+      .update(promoCodes)
+      .set({ deletedAt: null })
+      .where(eq(promoCodes.id, id));
+
+    return reply.status(200).send({
+      success: true,
+      data: { message: 'Promo berhasil dipulihkan' },
+    });
+  });
+
+  // ==================== ADMIN: PERMANENT DELETE PROMO ====================
+  app.delete('/admin/:id/permanent', {
     preHandler: [requireAdmin],
   }, async (request, reply) => {
     const { id } = request.params as { id: string };
@@ -253,7 +319,7 @@ export async function promoRoutes(app: FastifyInstance) {
 
     return reply.status(200).send({
       success: true,
-      data: { message: 'Promo berhasil dihapus' },
+      data: { message: 'Promo dihapus permanen' },
     });
   });
 

@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { db } from '../../db';
 import { articles } from '../../db/schema/cms';
-import { sql, eq, and, or, desc, count, ilike } from 'drizzle-orm';
+import { sql, eq, and, or, desc, count, ilike, isNull, isNotNull } from 'drizzle-orm';
 import { handleRouteError } from '../../lib/errors';
 import { requireAuth, requireAdmin } from '../../middleware/auth';
 import { z } from 'zod';
@@ -28,7 +28,7 @@ export async function articleRoutes(app: FastifyInstance) {
     const limitNum = Math.min(50, Math.max(1, parseInt(limit)));
     const skip = (pageNum - 1) * limitNum;
 
-    const where = eq(articles.status, 'PUBLISHED');
+    const where = and(eq(articles.status, 'PUBLISHED'), isNull(articles.deletedAt));
 
     const [articlesResult, totalResult] = await Promise.all([
       db
@@ -74,7 +74,7 @@ export async function articleRoutes(app: FastifyInstance) {
 
     const article = result[0];
 
-    if (!article || article.status !== 'PUBLISHED') {
+    if (!article || article.status !== 'PUBLISHED' || article.deletedAt) {
       return reply.status(404).send({
         success: false,
         error: { code: 'NOT_FOUND', message: 'Artikel tidak ditemukan' },
@@ -88,22 +88,26 @@ export async function articleRoutes(app: FastifyInstance) {
   app.get('/admin/all', {
     preHandler: [requireAdmin],
   }, async (request, reply) => {
-    const { page = '1', limit = '20', status, search } = request.query as {
+    const { page = '1', limit = '20', status, search, deleted } = request.query as {
       page?: string;
       limit?: string;
       status?: string;
       search?: string;
+      deleted?: string;
     };
 
     const pageNum = Math.max(1, parseInt(page));
     const limitNum = Math.min(100, Math.max(1, parseInt(limit)));
     const skip = (pageNum - 1) * limitNum;
 
-    const conditions: any[] = [];
+    // `?deleted=true` returns only trashed rows; otherwise only active rows.
+    const conditions: any[] = [
+      deleted === 'true' ? isNotNull(articles.deletedAt) : isNull(articles.deletedAt),
+    ];
     if (status) conditions.push(eq(articles.status, status));
     if (search) conditions.push(ilike(articles.title, `%${search}%`));
 
-    const where = conditions.length > 0 ? and(...conditions) : undefined;
+    const where = and(...conditions);
 
     const [articlesResult, totalResult] = await Promise.all([
       db
@@ -215,8 +219,68 @@ export async function articleRoutes(app: FastifyInstance) {
     }
   });
 
-  // ==================== ADMIN: DELETE ARTICLE ====================
+  // ==================== ADMIN: SOFT DELETE ARTICLE (MOVE TO TRASH) ====================
   app.delete('/admin/:id', {
+    preHandler: [requireAdmin],
+  }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+
+    const existing = await db
+      .select()
+      .from(articles)
+      .where(eq(articles.id, id))
+      .limit(1);
+
+    if (!existing[0]) {
+      return reply.status(404).send({
+        success: false,
+        error: { code: 'NOT_FOUND', message: 'Artikel tidak ditemukan' },
+      });
+    }
+
+    await db
+      .update(articles)
+      .set({ deletedAt: new Date(), updatedAt: new Date() })
+      .where(eq(articles.id, id));
+
+    return reply.status(200).send({
+      success: true,
+      data: { message: 'Artikel dipindahkan ke sampah' },
+    });
+  });
+
+  // ==================== ADMIN: RESTORE ARTICLE FROM TRASH ====================
+  app.post('/admin/:id/restore', {
+    preHandler: [requireAdmin],
+  }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+
+    const existing = await db
+      .select()
+      .from(articles)
+      .where(eq(articles.id, id))
+      .limit(1);
+
+    if (!existing[0]) {
+      return reply.status(404).send({
+        success: false,
+        error: { code: 'NOT_FOUND', message: 'Artikel tidak ditemukan' },
+      });
+    }
+
+    await db
+      .update(articles)
+      .set({ deletedAt: null, updatedAt: new Date() })
+      .where(eq(articles.id, id));
+
+    return reply.status(200).send({
+      success: true,
+      data: { message: 'Artikel berhasil dipulihkan' },
+    });
+  });
+
+  // ==================== ADMIN: PERMANENT DELETE ARTICLE ====================
+  app.delete('/admin/:id/permanent', {
     preHandler: [requireAdmin],
   }, async (request, reply) => {
     const { id } = request.params as { id: string };
@@ -238,7 +302,7 @@ export async function articleRoutes(app: FastifyInstance) {
 
     return reply.status(200).send({
       success: true,
-      data: { message: 'Artikel berhasil dihapus' },
+      data: { message: 'Artikel dihapus permanen' },
     });
   });
 }

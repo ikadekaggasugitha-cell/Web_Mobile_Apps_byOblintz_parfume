@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify';
-import { eq, asc, count, and } from 'drizzle-orm';
+import { eq, asc, count, and, isNull, isNotNull } from 'drizzle-orm';
 import { db } from '../../db';
 import { categories, products, reviews } from '../../db/schema';
 import { requireAdmin } from '../../middleware/auth';
@@ -19,6 +19,7 @@ export async function categoryRoutes(app: FastifyInstance) {
         createdAt: categories.createdAt,
       })
       .from(categories)
+      .where(isNull(categories.deletedAt))
       .orderBy(asc(categories.sortOrder));
 
     const productCounts = await db
@@ -65,7 +66,7 @@ export async function categoryRoutes(app: FastifyInstance) {
     const [category] = await db
       .select()
       .from(categories)
-      .where(eq(categories.slug, slug))
+      .where(and(eq(categories.slug, slug), isNull(categories.deletedAt)))
       .limit(1);
 
     if (!category) {
@@ -114,7 +115,7 @@ export async function categoryRoutes(app: FastifyInstance) {
     const childrenData = await db
       .select()
       .from(categories)
-      .where(eq(categories.parentId, category.id));
+      .where(and(eq(categories.parentId, category.id), isNull(categories.deletedAt)));
 
     const childProductCounts = await db
       .select({
@@ -161,9 +162,16 @@ export async function categoryRoutes(app: FastifyInstance) {
   app.get('/admin/all', {
     preHandler: [requireAdmin],
   }, async (request, reply) => {
+    const { deleted } = request.query as { deleted?: string };
+
+    // `?deleted=true` returns only trashed rows; otherwise only active rows.
+    const trashFilter =
+      deleted === 'true' ? isNotNull(categories.deletedAt) : isNull(categories.deletedAt);
+
     const allCategories = await db
       .select()
       .from(categories)
+      .where(trashFilter)
       .orderBy(asc(categories.sortOrder));
 
     const productCounts = await db
@@ -293,7 +301,7 @@ export async function categoryRoutes(app: FastifyInstance) {
     return reply.status(200).send({ success: true, data: category });
   });
 
-  // ==================== ADMIN: DELETE CATEGORY ====================
+  // ==================== ADMIN: SOFT DELETE CATEGORY (MOVE TO TRASH) ====================
   app.delete('/admin/:id', {
     preHandler: [requireAdmin],
   }, async (request, reply) => {
@@ -327,11 +335,86 @@ export async function categoryRoutes(app: FastifyInstance) {
       });
     }
 
+    await db
+      .update(categories)
+      .set({ deletedAt: new Date() })
+      .where(eq(categories.id, id));
+
+    return reply.status(200).send({
+      success: true,
+      data: { message: 'Kategori dipindahkan ke sampah' },
+    });
+  });
+
+  // ==================== ADMIN: RESTORE CATEGORY FROM TRASH ====================
+  app.post('/admin/:id/restore', {
+    preHandler: [requireAdmin],
+  }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+
+    const [existing] = await db
+      .select()
+      .from(categories)
+      .where(eq(categories.id, id))
+      .limit(1);
+
+    if (!existing) {
+      return reply.status(404).send({
+        success: false,
+        error: { code: 'NOT_FOUND', message: 'Kategori tidak ditemukan' },
+      });
+    }
+
+    await db
+      .update(categories)
+      .set({ deletedAt: null })
+      .where(eq(categories.id, id));
+
+    return reply.status(200).send({
+      success: true,
+      data: { message: 'Kategori berhasil dipulihkan' },
+    });
+  });
+
+  // ==================== ADMIN: PERMANENT DELETE CATEGORY ====================
+  app.delete('/admin/:id/permanent', {
+    preHandler: [requireAdmin],
+  }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+
+    const [existing] = await db
+      .select()
+      .from(categories)
+      .where(eq(categories.id, id))
+      .limit(1);
+
+    if (!existing) {
+      return reply.status(404).send({
+        success: false,
+        error: { code: 'NOT_FOUND', message: 'Kategori tidak ditemukan' },
+      });
+    }
+
+    const [{ productCount }] = await db
+      .select({ productCount: count() })
+      .from(products)
+      .where(eq(products.categoryId, id));
+
+    if (Number(productCount) > 0) {
+      return reply.status(400).send({
+        success: false,
+        error: {
+          code: 'HAS_PRODUCTS',
+          message: `Tidak bisa hapus permanen: ada ${productCount} produk dalam kategori ini`,
+        },
+      });
+    }
+
     await db.delete(categories).where(eq(categories.id, id));
 
     return reply.status(200).send({
       success: true,
-      data: { message: 'Kategori berhasil dihapus' },
+      data: { message: 'Kategori dihapus permanen' },
     });
   });
 }

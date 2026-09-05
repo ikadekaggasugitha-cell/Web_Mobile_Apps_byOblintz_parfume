@@ -11,6 +11,7 @@ export const categories = pgTable(
     image: varchar('image', { length: 500 }),
     parentId: uuid('parent_id'),
     sortOrder: integer('sort_order').default(0).notNull(),
+    deletedAt: timestamp('deleted_at'),
     createdAt: timestamp('created_at').defaultNow().notNull(),
   },
   (t) => [index('categories_parent_id_idx').on(t.parentId)],

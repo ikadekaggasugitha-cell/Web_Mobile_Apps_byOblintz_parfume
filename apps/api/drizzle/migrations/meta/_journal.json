@@ -15,6 +15,27 @@
       "when": 1788576277009,
       "tag": "0001_bizarre_hellcat",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1788599611537,
+      "tag": "0002_fixed_doctor_doom",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1788604568555,
+      "tag": "0003_high_machine_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1788604925159,
+      "tag": "0004_shiny_shocker",
+      "breakpoints": true
     }
   ]
 }

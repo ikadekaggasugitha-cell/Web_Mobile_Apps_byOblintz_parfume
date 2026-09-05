@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import Image from 'next/image';
-import { Plus, Pencil, Trash2, ImageOff } from 'lucide-react';
+import { Plus, Pencil, Trash2, ImageOff, RotateCcw } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -21,7 +21,10 @@ interface Banner {
   position: string;
   sortOrder: number;
   isActive: boolean;
+  deletedAt?: string | null;
 }
+
+type View = 'active' | 'trash';
 
 const bannerSchema = z.object({
   title: z.string().min(1, 'Judul wajib diisi'),
@@ -49,10 +52,12 @@ export default function AdminBannersPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editingBanner, setEditingBanner] = useState<Banner | null>(null);
-  const [deleteConfirm, setDeleteConfirm] = useState<{ open: boolean; id: string | null }>({
-    open: false,
-    id: null,
-  });
+  const [view, setView] = useState<View>('active');
+  const [confirm, setConfirm] = useState<{
+    open: boolean;
+    id: string | null;
+    mode: 'soft' | 'permanent';
+  }>({ open: false, id: null, mode: 'soft' });
 
   const {
     register,
@@ -64,17 +69,20 @@ export default function AdminBannersPage() {
     defaultValues: DEFAULT_VALUES,
   });
 
+  const listUrl =
+    view === 'trash' ? '/api/banners/admin/all?deleted=true' : '/api/banners/admin/all';
+
   const refreshBanners = useCallback(async () => {
     const token = localStorage.getItem('adminAccessToken');
     try {
-      const response = await api.get('/api/banners/admin/all', {
+      const response = await api.get(listUrl, {
         headers: { Authorization: `Bearer ${token}` },
       });
       setBanners(response.data.data);
     } catch (error) {
       console.error('Gagal memuat banner:', error);
     }
-  }, []);
+  }, [listUrl]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -83,7 +91,7 @@ export default function AdminBannersPage() {
       setIsLoading(true);
       const token = localStorage.getItem('adminAccessToken');
       try {
-        const response = await api.get('/api/banners/admin/all', {
+        const response = await api.get(listUrl, {
           headers: { Authorization: `Bearer ${token}` },
           signal: controller.signal,
         });
@@ -100,7 +108,7 @@ export default function AdminBannersPage() {
     fetchData();
 
     return () => controller.abort();
-  }, []);
+  }, [listUrl]);
 
   const onSubmit = useCallback(async (data: BannerInput) => {
     const token = localStorage.getItem('adminAccessToken');
@@ -126,23 +134,41 @@ export default function AdminBannersPage() {
     }
   }, [editingBanner, reset, refreshBanners, success, showError]);
 
-  const handleDeleteConfirm = useCallback(async () => {
-    if (!deleteConfirm.id) return;
+  const handleConfirm = useCallback(async () => {
+    if (!confirm.id) return;
 
     const token = localStorage.getItem('adminAccessToken');
+    const headers = { Authorization: `Bearer ${token}` };
     try {
-      await api.delete(`/api/banners/admin/${deleteConfirm.id}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      if (confirm.mode === 'permanent') {
+        await api.delete(`/api/banners/admin/${confirm.id}/permanent`, { headers });
+        success('Banner dihapus permanen');
+      } else {
+        await api.delete(`/api/banners/admin/${confirm.id}`, { headers });
+        success('Banner dipindahkan ke sampah');
+      }
       refreshBanners();
-      success('Banner berhasil dihapus');
     } catch (error) {
       console.error('Gagal hapus:', error);
       showError('Gagal menghapus banner');
     } finally {
-      setDeleteConfirm({ open: false, id: null });
+      setConfirm({ open: false, id: null, mode: 'soft' });
     }
-  }, [deleteConfirm.id, refreshBanners, success, showError]);
+  }, [confirm.id, confirm.mode, refreshBanners, success, showError]);
+
+  const handleRestore = useCallback(async (id: string) => {
+    const token = localStorage.getItem('adminAccessToken');
+    try {
+      await api.post(`/api/banners/admin/${id}/restore`, undefined, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      refreshBanners();
+      success('Banner berhasil dipulihkan');
+    } catch (error) {
+      console.error('Gagal pulihkan:', error);
+      showError('Gagal memulihkan banner');
+    }
+  }, [refreshBanners, success, showError]);
 
   const handleOpenModal = useCallback((banner?: Banner) => {
     if (banner) {
@@ -172,21 +198,45 @@ export default function AdminBannersPage() {
     <div className="space-y-6">
       <ToastContainer toasts={toasts} />
       <ConfirmDialog
-        isOpen={deleteConfirm.open}
-        onConfirm={handleDeleteConfirm}
-        onCancel={() => setDeleteConfirm({ open: false, id: null })}
-        title="Hapus Banner"
-        message="Yakin ingin menghapus banner ini? Tindakan ini tidak dapat dibatalkan."
-        confirmLabel="Hapus"
+        isOpen={confirm.open}
+        onConfirm={handleConfirm}
+        onCancel={() => setConfirm({ open: false, id: null, mode: 'soft' })}
+        title={confirm.mode === 'permanent' ? 'Hapus Permanen Banner' : 'Pindahkan ke Sampah'}
+        message={
+          confirm.mode === 'permanent'
+            ? 'Banner akan dihapus permanen dari database dan TIDAK dapat dipulihkan. Lanjutkan?'
+            : 'Banner akan dipindahkan ke Sampah. Anda masih dapat memulihkannya nanti.'
+        }
+        confirmLabel={confirm.mode === 'permanent' ? 'Hapus Permanen' : 'Pindahkan'}
         variant="danger"
       />
 
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-slate-500">Kelola banner promosi di halaman toko.</p>
-        <button onClick={() => handleOpenModal()} className="btn-primary">
-          <Plus className="h-4 w-4" strokeWidth={2.25} />
-          Tambah Banner
-        </button>
+        <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5">
+          <button
+            onClick={() => setView('active')}
+            className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+              view === 'active' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            Aktif
+          </button>
+          <button
+            onClick={() => setView('trash')}
+            className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+              view === 'trash' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
+            Sampah
+          </button>
+        </div>
+        {view === 'active' && (
+          <button onClick={() => handleOpenModal()} className="btn-primary">
+            <Plus className="h-4 w-4" strokeWidth={2.25} />
+            Tambah Banner
+          </button>
+        )}
       </div>
 
       <div className="card overflow-hidden">
@@ -201,9 +251,13 @@ export default function AdminBannersPage() {
             <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
               <ImageOff className="h-6 w-6" strokeWidth={1.75} />
             </div>
-            <p className="text-sm font-medium text-slate-900">Tidak ada banner</p>
+            <p className="text-sm font-medium text-slate-900">
+              {view === 'trash' ? 'Sampah kosong' : 'Tidak ada banner'}
+            </p>
             <p className="mt-1 text-sm text-slate-500">
-              Tambahkan banner untuk tampil di halaman toko.
+              {view === 'trash'
+                ? 'Banner yang dihapus akan muncul di sini.'
+                : 'Tambahkan banner untuk tampil di halaman toko.'}
             </p>
           </div>
         ) : (
@@ -246,20 +300,41 @@ export default function AdminBannersPage() {
                     </td>
                     <td className="td">
                       <div className="flex items-center justify-end gap-1">
-                        <button
-                          onClick={() => handleOpenModal(banner)}
-                          className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900"
-                        >
-                          <Pencil className="h-4 w-4" strokeWidth={2} />
-                          Edit
-                        </button>
-                        <button
-                          onClick={() => setDeleteConfirm({ open: true, id: banner.id })}
-                          className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-red-600 transition-colors hover:bg-red-50"
-                        >
-                          <Trash2 className="h-4 w-4" strokeWidth={2} />
-                          Hapus
-                        </button>
+                        {view === 'trash' ? (
+                          <>
+                            <button
+                              onClick={() => handleRestore(banner.id)}
+                              className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-green-700 transition-colors hover:bg-green-50"
+                            >
+                              <RotateCcw className="h-4 w-4" strokeWidth={2} />
+                              Pulihkan
+                            </button>
+                            <button
+                              onClick={() => setConfirm({ open: true, id: banner.id, mode: 'permanent' })}
+                              className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-red-600 transition-colors hover:bg-red-50"
+                            >
+                              <Trash2 className="h-4 w-4" strokeWidth={2} />
+                              Hapus Permanen
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button
+                              onClick={() => handleOpenModal(banner)}
+                              className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900"
+                            >
+                              <Pencil className="h-4 w-4" strokeWidth={2} />
+                              Edit
+                            </button>
+                            <button
+                              onClick={() => setConfirm({ open: true, id: banner.id, mode: 'soft' })}
+                              className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-red-600 transition-colors hover:bg-red-50"
+                            >
+                              <Trash2 className="h-4 w-4" strokeWidth={2} />
+                              Hapus
+                            </button>
+                          </>
+                        )}
                       </div>
                     </td>
                   </tr>

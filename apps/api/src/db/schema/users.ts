@@ -1,5 +1,5 @@
 import { pgTable, uuid, varchar, boolean, timestamp, jsonb, index } from 'drizzle-orm/pg-core'
-import { adminRoleEnum, userRoleEnum } from './enums'
+import { userRoleEnum } from './enums'
 
 export const users = pgTable(
   'users',
@@ -37,21 +37,11 @@ export const addresses = pgTable(
   (t) => [index('addresses_user_id_idx').on(t.userId)],
 )
 
-export const adminUsers = pgTable('admin_users', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  email: varchar('email', { length: 255 }).notNull().unique(),
-  passwordHash: varchar('password_hash', { length: 255 }).notNull(),
-  name: varchar('name', { length: 255 }).notNull(),
-  role: adminRoleEnum('role').default('ADMIN').notNull(),
-  permissions: jsonb('permissions'),
-  lastLogin: timestamp('last_login'),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-})
-
 export const auditLogs = pgTable(
   'audit_logs',
   {
     id: uuid('id').defaultRandom().primaryKey(),
+    // The admin (a `users` row with an elevated role) who performed the action.
     adminUserId: uuid('admin_user_id'),
     action: varchar('action', { length: 100 }).notNull(),
     module: varchar('module', { length: 100 }).notNull(),

@@ -19,13 +19,31 @@ async function getProducts(): Promise<{ slug: string; updatedAt: string }[]> {
   }
 }
 
+async function getArticles(): Promise<{ slug: string; updatedAt: string }[]> {
+  try {
+    const res = await fetch(`${getApiBaseUrl()}/api/articles?limit=100`, {
+      next: { revalidate: 3600 },
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.data?.articles ?? []).map((a: any) => ({
+      slug: a.slug,
+      updatedAt: a.createdAt,
+    }));
+  } catch {
+    return [];
+  }
+}
+
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const products = await getProducts();
+  const [products, articles] = await Promise.all([getProducts(), getArticles()]);
 
   const staticPages = [
     { url: BASE_URL, lastModified: new Date(), changeFrequency: 'daily' as const, priority: 1 },
     { url: `${BASE_URL}/products`, lastModified: new Date(), changeFrequency: 'daily' as const, priority: 0.9 },
     { url: `${BASE_URL}/categories`, lastModified: new Date(), changeFrequency: 'weekly' as const, priority: 0.7 },
+    { url: `${BASE_URL}/articles`, lastModified: new Date(), changeFrequency: 'weekly' as const, priority: 0.6 },
+    { url: `${BASE_URL}/faq`, lastModified: new Date(), changeFrequency: 'monthly' as const, priority: 0.5 },
     { url: `${BASE_URL}/quiz`, lastModified: new Date(), changeFrequency: 'monthly' as const, priority: 0.6 },
     { url: `${BASE_URL}/login`, lastModified: new Date(), changeFrequency: 'monthly' as const, priority: 0.3 },
     { url: `${BASE_URL}/register`, lastModified: new Date(), changeFrequency: 'monthly' as const, priority: 0.3 },
@@ -38,5 +56,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     priority: 0.8,
   }));
 
-  return [...staticPages, ...productPages];
+  const articlePages = articles.map((article) => ({
+    url: `${BASE_URL}/articles/${article.slug}`,
+    lastModified: new Date(article.updatedAt),
+    changeFrequency: 'monthly' as const,
+    priority: 0.6,
+  }));
+
+  return [...staticPages, ...productPages, ...articlePages];
 }
