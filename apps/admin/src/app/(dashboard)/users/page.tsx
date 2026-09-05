@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { Search, Pencil, Ban, ShieldCheck, Users } from 'lucide-react';
 import { api } from '@/lib/api';
 import type { Pagination } from '@oblintz/shared';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
@@ -152,31 +153,26 @@ export default function AdminUsersPage() {
         variant={banConfirm.user?.banned ? 'default' : 'danger'}
       />
 
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">Pengguna</h1>
-      </div>
+      <p className="text-sm text-slate-500">Kelola akun pelanggan dan peran akses.</p>
 
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-        <form onSubmit={handleSearch} className="flex gap-2">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <form onSubmit={handleSearch} className="relative flex-1 sm:max-w-xs">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Cari nama atau email..."
-            className="h-10 w-full rounded-lg border border-gray-300 px-4 text-sm focus:border-primary-500 focus:outline-none sm:w-64"
+            aria-label="Cari nama atau email"
+            className="input w-full pl-9"
           />
-          <button
-            type="submit"
-            className="h-10 rounded-lg bg-gray-100 px-4 text-sm font-medium hover:bg-gray-200"
-          >
-            Cari
-          </button>
         </form>
 
         <select
           value={roleFilter}
           onChange={(e) => setRoleFilter(e.target.value)}
-          className="h-10 rounded-lg border border-gray-300 px-3 text-sm focus:border-primary-500 focus:outline-none"
+          aria-label="Filter role"
+          className="input sm:w-44"
         >
           <option value="">Semua Role</option>
           <option value="USER">User</option>
@@ -185,37 +181,52 @@ export default function AdminUsersPage() {
         </select>
       </div>
 
-      <div className="rounded-xl bg-white shadow-sm">
+      <div className="card overflow-hidden">
         {isLoading ? (
-          <div className="p-8 text-center text-gray-500">Memuat...</div>
+          <div className="space-y-3 p-5" aria-hidden="true">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="h-12 animate-pulse rounded-lg bg-slate-100" />
+            ))}
+          </div>
         ) : users.length === 0 ? (
-          <div className="p-8 text-center text-gray-500">Tidak ada pengguna ditemukan</div>
+          <div className="flex flex-col items-center justify-center px-4 py-16 text-center">
+            <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
+              <Users className="h-6 w-6" strokeWidth={1.75} />
+            </div>
+            <p className="text-sm font-medium text-slate-900">
+              Tidak ada pengguna ditemukan
+            </p>
+            <p className="mt-1 text-sm text-slate-500">
+              Coba ubah kata kunci atau filter.
+            </p>
+          </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full min-w-[720px] text-sm">
               <thead>
-                <tr className="border-b border-gray-200 text-left text-gray-500">
-                  <th className="p-4 font-medium">Nama</th>
-                  <th className="p-4 font-medium">Email</th>
-                  <th className="p-4 font-medium">Role</th>
-                  <th className="p-4 font-medium">Pesanan</th>
-                  <th className="p-4 font-medium">Status</th>
-                  <th className="p-4 font-medium">Tanggal Daftar</th>
-                  <th className="p-4 font-medium">Aksi</th>
+                <tr className="border-b border-slate-200 bg-slate-50">
+                  <th className="th">Nama</th>
+                  <th className="th">Email</th>
+                  <th className="th">Role</th>
+                  <th className="th">Pesanan</th>
+                  <th className="th">Status</th>
+                  <th className="th">Tanggal Daftar</th>
+                  <th className="th text-right">Aksi</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-slate-100">
                 {users.map((user) => (
-                  <tr key={user.id} className="border-b border-gray-100 hover:bg-gray-50">
-                    <td className="p-4">
-                      <p className="font-medium text-gray-900">{user.name}</p>
-                    </td>
-                    <td className="p-4 text-gray-600">{user.email}</td>
-                    <td className="p-4">
+                  <tr
+                    key={user.id}
+                    className="transition-colors hover:bg-slate-50"
+                  >
+                    <td className="td font-medium text-slate-900">{user.name}</td>
+                    <td className="td text-slate-500">{user.email}</td>
+                    <td className="td">
                       <StatusBadge status={user.role} labels={ROLE_LABELS} />
                     </td>
-                    <td className="p-4 text-gray-600">{user._count.orders}</td>
-                    <td className="p-4">
+                    <td className="td tabular-nums text-slate-500">{user._count.orders}</td>
+                    <td className="td">
                       <StatusBadge
                         status={user.banned ? 'banned' : 'active'}
                         labels={{
@@ -224,16 +235,31 @@ export default function AdminUsersPage() {
                         }}
                       />
                     </td>
-                    <td className="p-4 text-gray-500">
+                    <td className="td tabular-nums text-slate-500">
                       {new Date(user.createdAt).toLocaleDateString('id-ID')}
                     </td>
-                    <td className="p-4">
-                      <div className="flex gap-2">
-                        <button onClick={() => handleOpenModal(user)} className="text-primary-500 hover:underline">Edit</button>
+                    <td className="td">
+                      <div className="flex items-center justify-end gap-1">
+                        <button
+                          onClick={() => handleOpenModal(user)}
+                          className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900"
+                        >
+                          <Pencil className="h-4 w-4" strokeWidth={2} />
+                          Edit
+                        </button>
                         <button
                           onClick={() => setBanConfirm({ open: true, user })}
-                          className={user.banned ? 'text-green-600 hover:underline' : 'text-yellow-600 hover:underline'}
+                          className={
+                            user.banned
+                              ? 'inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-green-600 transition-colors hover:bg-green-50'
+                              : 'inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-red-600 transition-colors hover:bg-red-50'
+                          }
                         >
+                          {user.banned ? (
+                            <ShieldCheck className="h-4 w-4" strokeWidth={2} />
+                          ) : (
+                            <Ban className="h-4 w-4" strokeWidth={2} />
+                          )}
                           {user.banned ? 'Unban' : 'Ban'}
                         </button>
                       </div>
@@ -246,31 +272,40 @@ export default function AdminUsersPage() {
         )}
 
         {pagination && pagination.totalPages > 1 && (
-          <div className="flex justify-center gap-2 border-t border-gray-200 p-4">
-            {paginationPages.map((p) => (
-              <button
-                key={p}
-                onClick={() => handlePageChange(p)}
-                className={`h-8 rounded-lg px-3 text-sm ${
-                  p === pagination.page
-                    ? 'bg-primary-500 text-white'
-                    : 'bg-gray-100 hover:bg-gray-200'
-                }`}
-              >
-                {p}
-              </button>
-            ))}
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 px-4 py-3">
+            <p className="text-xs text-slate-500">
+              Halaman{' '}
+              <span className="font-medium text-slate-700">{pagination.page}</span>{' '}
+              dari{' '}
+              <span className="font-medium text-slate-700">{pagination.totalPages}</span>
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {paginationPages.map((p) => (
+                <button
+                  key={p}
+                  onClick={() => handlePageChange(p)}
+                  aria-current={p === pagination.page ? 'page' : undefined}
+                  className={`h-8 min-w-8 rounded-lg px-2.5 text-sm font-medium transition-colors ${
+                    p === pagination.page
+                      ? 'bg-primary-600 text-white'
+                      : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  {p}
+                </button>
+              ))}
+            </div>
           </div>
         )}
       </div>
 
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true">
-          <div className="w-full max-w-md rounded-xl bg-white p-6">
+          <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-6">
             <h2 className="mb-4 text-lg font-semibold">Edit Pengguna</h2>
             <div className="space-y-4">
               <div>
-                <label className="mb-1.5 block text-sm font-medium text-gray-700">Nama</label>
+                <label className="mb-1.5 block text-sm font-medium text-slate-700">Nama</label>
                 <Input
                   value={form.name}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
@@ -278,7 +313,7 @@ export default function AdminUsersPage() {
                 />
               </div>
               <div>
-                <label className="mb-1.5 block text-sm font-medium text-gray-700">Email</label>
+                <label className="mb-1.5 block text-sm font-medium text-slate-700">Email</label>
                 <Input
                   type="email"
                   value={form.email}
@@ -287,15 +322,15 @@ export default function AdminUsersPage() {
                 />
               </div>
               <div>
-                <label className="mb-1.5 block text-sm font-medium text-gray-700">Telepon</label>
+                <label className="mb-1.5 block text-sm font-medium text-slate-700">Telepon</label>
                 <Input
                   value={form.phone}
                   onChange={(e) => setForm({ ...form, phone: e.target.value })}
                 />
               </div>
               <div className="mt-6 flex justify-end gap-2">
-                <button onClick={handleCloseModal} className="rounded-lg border border-gray-300 px-4 py-2 text-sm">Batal</button>
-                <button onClick={handleSaveUser} disabled={isSaving} className="rounded-lg bg-primary-500 px-4 py-2 text-sm text-white hover:bg-primary-600 disabled:opacity-50">
+                <button onClick={handleCloseModal} className="btn-secondary">Batal</button>
+                <button onClick={handleSaveUser} disabled={isSaving} className="btn-primary">
                   {isSaving ? 'Menyimpan...' : 'Simpan'}
                 </button>
               </div>

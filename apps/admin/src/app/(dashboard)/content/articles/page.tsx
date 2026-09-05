@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import { Plus, Search, Pencil, Trash2, Newspaper } from 'lucide-react';
 import { api } from '@/lib/api';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
@@ -182,29 +183,32 @@ export default function AdminArticlesPage() {
         variant="danger"
       />
 
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">Artikel</h1>
-        <button
-          onClick={() => handleOpenModal()}
-          className="rounded-lg bg-primary-500 px-4 py-2 text-sm font-medium text-white hover:bg-primary-600"
-        >
-          + Artikel Baru
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-slate-500">Kelola artikel blog dan konten editorial.</p>
+        <button onClick={() => handleOpenModal()} className="btn-primary">
+          <Plus className="h-4 w-4" strokeWidth={2.25} />
+          Tambah Artikel
         </button>
       </div>
 
-      <div className="flex gap-4">
-        <input
-          type="text"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && refreshArticles()}
-          placeholder="Cari artikel..."
-          className="h-10 w-64 rounded-lg border border-gray-300 px-4 text-sm focus:border-primary-500 focus:outline-none"
-        />
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="relative flex-1 sm:max-w-xs">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && refreshArticles()}
+            placeholder="Cari artikel..."
+            aria-label="Cari artikel"
+            className="input w-full pl-9"
+          />
+        </div>
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
-          className="h-10 rounded-lg border border-gray-300 px-3 text-sm"
+          aria-label="Filter status"
+          className="input sm:w-44"
         >
           <option value="">Semua Status</option>
           <option value="DRAFT">Draft</option>
@@ -212,76 +216,104 @@ export default function AdminArticlesPage() {
         </select>
       </div>
 
-      <div className="rounded-xl bg-white shadow-sm">
+      <div className="card overflow-hidden">
         {isLoading ? (
-          <div className="p-8 text-center text-gray-500">Memuat...</div>
+          <div className="space-y-3 p-5" aria-hidden="true">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="h-12 animate-pulse rounded-lg bg-slate-100" />
+            ))}
+          </div>
         ) : articles.length === 0 ? (
-          <div className="p-8 text-center text-gray-500">Tidak ada artikel</div>
+          <div className="flex flex-col items-center justify-center px-4 py-16 text-center">
+            <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
+              <Newspaper className="h-6 w-6" strokeWidth={1.75} />
+            </div>
+            <p className="text-sm font-medium text-slate-900">Tidak ada artikel</p>
+            <p className="mt-1 text-sm text-slate-500">
+              Coba ubah kata kunci atau filter status.
+            </p>
+          </div>
         ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-200 text-left text-gray-500">
-                <th className="p-4 font-medium">Judul</th>
-                <th className="p-4 font-medium">Penulis</th>
-                <th className="p-4 font-medium">Status</th>
-                <th className="p-4 font-medium">Tanggal</th>
-                <th className="p-4 font-medium">Aksi</th>
-              </tr>
-            </thead>
-            <tbody>
-              {articles.map((article) => (
-                <tr key={article.id} className="border-b border-gray-100 hover:bg-gray-50">
-                  <td className="p-4 font-medium text-gray-900">{article.title}</td>
-                  <td className="p-4 text-gray-600">{article.author}</td>
-                  <td className="p-4">
-                    <StatusBadge
-                      status={article.status}
-                      labels={{
-                        PUBLISHED: { label: 'Published', color: 'bg-green-100 text-green-800' },
-                        DRAFT: { label: 'Draft', color: 'bg-gray-100 text-gray-800' },
-                      }}
-                    />
-                  </td>
-                  <td className="p-4 text-gray-500">{new Date(article.createdAt).toLocaleDateString('id-ID')}</td>
-                  <td className="p-4 flex gap-2">
-                    <button onClick={() => handleOpenModal(article)} className="text-primary-500 hover:underline">Edit</button>
-                    <button onClick={() => setDeleteConfirm({ open: true, id: article.id })} className="text-red-500 hover:underline">Hapus</button>
-                  </td>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[720px] text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 bg-slate-50">
+                  <th className="th">Judul</th>
+                  <th className="th">Penulis</th>
+                  <th className="th">Status</th>
+                  <th className="th">Tanggal</th>
+                  <th className="th text-right">Aksi</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {articles.map((article) => (
+                  <tr key={article.id} className="transition-colors hover:bg-slate-50">
+                    <td className="td font-medium text-slate-900">{article.title}</td>
+                    <td className="td text-slate-600">{article.author}</td>
+                    <td className="td">
+                      <StatusBadge
+                        status={article.status}
+                        labels={{
+                          PUBLISHED: { label: 'Published', color: 'bg-green-100 text-green-800' },
+                          DRAFT: { label: 'Draft', color: 'bg-gray-100 text-gray-800' },
+                        }}
+                      />
+                    </td>
+                    <td className="td tabular-nums text-slate-500">{new Date(article.createdAt).toLocaleDateString('id-ID')}</td>
+                    <td className="td">
+                      <div className="flex items-center justify-end gap-1">
+                        <button
+                          onClick={() => handleOpenModal(article)}
+                          className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900"
+                        >
+                          <Pencil className="h-4 w-4" strokeWidth={2} />
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => setDeleteConfirm({ open: true, id: article.id })}
+                          className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-red-600 transition-colors hover:bg-red-50"
+                        >
+                          <Trash2 className="h-4 w-4" strokeWidth={2} />
+                          Hapus
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
 
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true" aria-labelledby="article-modal-title">
-          <div className="w-full max-w-2xl rounded-xl bg-white p-6">
+          <div className="w-full max-w-2xl rounded-xl border border-slate-200 bg-white p-6">
             <h2 id="article-modal-title" className="mb-4 text-lg font-semibold">{editingArticle ? 'Edit Artikel' : 'Artikel Baru'}</h2>
             <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
               <div>
-                <label htmlFor="article-title" className="mb-1.5 block text-sm font-medium text-gray-700">Judul</label>
+                <label htmlFor="article-title" className="mb-1.5 block text-sm font-medium text-slate-700">Judul</label>
                 <Input id="article-title" {...register('title')} error={errors.title?.message} />
               </div>
               <div>
-                <label htmlFor="article-content" className="mb-1.5 block text-sm font-medium text-gray-700">Konten</label>
-                <textarea id="article-content" {...register('content')} className={`h-40 w-full rounded-lg border p-3 text-sm ${errors.content ? 'border-red-500' : 'border-gray-300'} focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500`} />
+                <label htmlFor="article-content" className="mb-1.5 block text-sm font-medium text-slate-700">Konten</label>
+                <textarea id="article-content" {...register('content')} className={`h-40 w-full rounded-lg border p-3 text-sm ${errors.content ? 'border-red-500' : 'border-slate-300'} focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500`} />
                 {errors.content && <p className="mt-1 text-xs text-red-500">{errors.content.message}</p>}
               </div>
               <div>
-                <label htmlFor="article-excerpt" className="mb-1.5 block text-sm font-medium text-gray-700">Excerpt (opsional)</label>
+                <label htmlFor="article-excerpt" className="mb-1.5 block text-sm font-medium text-slate-700">Excerpt (opsional)</label>
                 <Input id="article-excerpt" {...register('excerpt')} />
               </div>
               <div>
-                <label htmlFor="article-status" className="mb-1.5 block text-sm font-medium text-gray-700">Status</label>
-                <select id="article-status" {...register('status')} className="h-10 w-full rounded-lg border border-gray-300 px-3 text-sm focus:border-primary-500 focus:outline-none">
+                <label htmlFor="article-status" className="mb-1.5 block text-sm font-medium text-slate-700">Status</label>
+                <select id="article-status" {...register('status')} className="input w-full">
                   <option value="DRAFT">Draft</option>
                   <option value="PUBLISHED">Published</option>
                 </select>
               </div>
               <div className="mt-6 flex justify-end gap-2">
-                <button type="button" onClick={handleCloseModal} className="rounded-lg border border-gray-300 px-4 py-2 text-sm">Batal</button>
-                <button type="submit" disabled={isSubmitting} className="rounded-lg bg-primary-500 px-4 py-2 text-sm text-white hover:bg-primary-600 disabled:opacity-50">
+                <button type="button" onClick={handleCloseModal} className="btn-secondary">Batal</button>
+                <button type="submit" disabled={isSubmitting} className="btn-primary">
                   {isSubmitting ? 'Menyimpan...' : 'Simpan'}
                 </button>
               </div>

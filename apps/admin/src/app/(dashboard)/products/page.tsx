@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import Link from 'next/link';
+import { Plus, Search, Pencil, Trash2, PackageSearch } from 'lucide-react';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 import type { Pagination } from '@oblintz/shared';
@@ -117,38 +118,35 @@ export default function AdminProductsPage() {
         variant="danger"
       />
 
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">Produk</h1>
-        <Link
-          href="/products/new"
-          className="rounded-lg bg-primary-500 px-4 py-2 text-sm font-medium text-white hover:bg-primary-600"
-        >
-          + Tambah Produk
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-slate-500">
+          Kelola katalog produk, harga, dan stok.
+        </p>
+        <Link href="/products/new" className="btn-primary">
+          <Plus className="h-4 w-4" strokeWidth={2.25} />
+          Tambah Produk
         </Link>
       </div>
 
       {/* Filters */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-        <form onSubmit={handleSearch} className="flex gap-2">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <form onSubmit={handleSearch} className="relative flex-1 sm:max-w-xs">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Cari produk..."
-            className="h-10 w-full rounded-lg border border-gray-300 px-4 text-sm focus:border-primary-500 focus:outline-none sm:w-64"
+            aria-label="Cari produk"
+            className="input w-full pl-9"
           />
-          <button
-            type="submit"
-            className="h-10 rounded-lg bg-gray-100 px-4 text-sm font-medium hover:bg-gray-200"
-          >
-            Cari
-          </button>
         </form>
 
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
-          className="h-10 rounded-lg border border-gray-300 px-3 text-sm focus:border-primary-500 focus:outline-none"
+          aria-label="Filter status"
+          className="input sm:w-44"
         >
           <option value="">Semua Status</option>
           <option value="ACTIVE">Aktif</option>
@@ -158,74 +156,86 @@ export default function AdminProductsPage() {
       </div>
 
       {/* Products Table */}
-      <div className="rounded-xl bg-white shadow-sm">
+      <div className="card overflow-hidden">
         {isLoading ? (
-          <div className="p-8 text-center text-gray-500">Memuat...</div>
+          <div className="space-y-3 p-5" aria-hidden="true">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="h-12 animate-pulse rounded-lg bg-slate-100" />
+            ))}
+          </div>
         ) : products.length === 0 ? (
-          <div className="p-8 text-center text-gray-500">
-            Tidak ada produk ditemukan
+          <div className="flex flex-col items-center justify-center px-4 py-16 text-center">
+            <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
+              <PackageSearch className="h-6 w-6" strokeWidth={1.75} />
+            </div>
+            <p className="text-sm font-medium text-slate-900">
+              Tidak ada produk ditemukan
+            </p>
+            <p className="mt-1 text-sm text-slate-500">
+              Coba ubah kata kunci atau filter status.
+            </p>
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full min-w-[720px] text-sm">
               <thead>
-                <tr className="border-b border-gray-200 text-left text-gray-500">
-                  <th className="p-4 font-medium">Produk</th>
-                  <th className="p-4 font-medium">SKU</th>
-                  <th className="p-4 font-medium">Harga</th>
-                  <th className="p-4 font-medium">Stok</th>
-                  <th className="p-4 font-medium">Status</th>
-                  <th className="p-4 font-medium">Penjualan</th>
-                  <th className="p-4 font-medium">Aksi</th>
+                <tr className="border-b border-slate-200 bg-slate-50">
+                  <th className="th">Produk</th>
+                  <th className="th">SKU</th>
+                  <th className="th">Harga</th>
+                  <th className="th">Stok</th>
+                  <th className="th">Status</th>
+                  <th className="th">Penjualan</th>
+                  <th className="th text-right">Aksi</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-slate-100">
                 {products.map((product) => (
                   <tr
                     key={product.id}
-                    className="border-b border-gray-100 hover:bg-gray-50"
+                    className="transition-colors hover:bg-slate-50"
                   >
-                    <td className="p-4">
-                      <div>
-                        <p className="font-medium text-gray-900">
-                          {product.name}
-                        </p>
-                        <p className="text-xs text-gray-500">
-                          {product.category?.name}
-                        </p>
-                      </div>
+                    <td className="td">
+                      <p className="font-medium text-slate-900">
+                        {product.name}
+                      </p>
+                      <p className="text-xs text-slate-500">
+                        {product.category?.name}
+                      </p>
                     </td>
-                    <td className="p-4 text-gray-600">{product.sku}</td>
-                    <td className="p-4 font-medium">
+                    <td className="td text-slate-500">{product.sku}</td>
+                    <td className="td font-medium tabular-nums text-slate-900">
                       {formatCurrency(product.price)}
                     </td>
-                    <td className="p-4">
+                    <td className="td">
                       <span
-                        className={`font-medium ${
-                          product.stock <= 5 ? 'text-red-500' : 'text-gray-900'
+                        className={`font-medium tabular-nums ${
+                          product.stock <= 5 ? 'text-red-600' : 'text-slate-900'
                         }`}
                       >
                         {product.stock}
                       </span>
                     </td>
-                    <td className="p-4">
+                    <td className="td">
                       <StatusBadge status={product.status} labels={STATUS_LABELS} />
                     </td>
-                    <td className="p-4 text-gray-600">
+                    <td className="td tabular-nums text-slate-500">
                       {product._count.orderItems}
                     </td>
-                    <td className="p-4">
-                      <div className="flex gap-2">
+                    <td className="td">
+                      <div className="flex items-center justify-end gap-1">
                         <Link
                           href={`/products/${product.id}/edit`}
-                          className="text-primary-500 hover:underline"
+                          className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900"
                         >
+                          <Pencil className="h-4 w-4" strokeWidth={2} />
                           Edit
                         </Link>
                         <button
                           onClick={() => setDeleteConfirm({ open: true, id: product.id })}
-                          className="text-red-500 hover:underline"
+                          className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-red-600 transition-colors hover:bg-red-50"
                         >
+                          <Trash2 className="h-4 w-4" strokeWidth={2} />
                           Hapus
                         </button>
                       </div>
@@ -239,20 +249,29 @@ export default function AdminProductsPage() {
 
         {/* Pagination */}
         {pagination && pagination.totalPages > 1 && (
-          <div className="flex justify-center gap-2 border-t border-gray-200 p-4">
-            {paginationPages.map((p) => (
-              <button
-                key={p}
-                onClick={() => handlePageChange(p)}
-                className={`h-8 rounded-lg px-3 text-sm ${
-                  p === pagination.page
-                    ? 'bg-primary-500 text-white'
-                    : 'bg-gray-100 hover:bg-gray-200'
-                }`}
-              >
-                {p}
-              </button>
-            ))}
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 px-4 py-3">
+            <p className="text-xs text-slate-500">
+              Halaman{' '}
+              <span className="font-medium text-slate-700">{pagination.page}</span>{' '}
+              dari{' '}
+              <span className="font-medium text-slate-700">{pagination.totalPages}</span>
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {paginationPages.map((p) => (
+                <button
+                  key={p}
+                  onClick={() => handlePageChange(p)}
+                  aria-current={p === pagination.page ? 'page' : undefined}
+                  className={`h-8 min-w-8 rounded-lg px-2.5 text-sm font-medium transition-colors ${
+                    p === pagination.page
+                      ? 'bg-primary-600 text-white'
+                      : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  {p}
+                </button>
+              ))}
+            </div>
           </div>
         )}
       </div>

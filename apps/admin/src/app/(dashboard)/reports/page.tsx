@@ -1,6 +1,15 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import {
+  ShoppingCart,
+  Wallet,
+  Package,
+  Users,
+  Repeat,
+  TrendingUp,
+  type LucideIcon,
+} from 'lucide-react';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 
@@ -72,15 +81,17 @@ export default function AdminReportsPage() {
     return () => controller.abort();
   }, [salesPeriod]);
 
-  const statCards = useMemo(() => {
+  const statCards = useMemo<
+    { title: string; value: string | number; icon: LucideIcon; tone: string }[]
+  >(() => {
     if (!dashboard) return [];
     return [
-      { title: 'Total Pesanan', value: dashboard.stats.totalOrders, icon: '📦', color: 'bg-blue-500' },
-      { title: 'Pendapatan Bulan Ini', value: formatCurrency(dashboard.stats.revenueThisMonth), icon: '💰', color: 'bg-green-500' },
-      { title: 'Produk Aktif', value: dashboard.stats.totalProducts, icon: '🏷️', color: 'bg-purple-500' },
-      { title: 'Total Pengguna', value: dashboard.stats.totalUsers, icon: '👥', color: 'bg-orange-500' },
-      { title: 'Langganan Aktif', value: dashboard.stats.totalSubscriptions, icon: '📦', color: 'bg-cyan-500' },
-      { title: 'Pesanan Bulan Ini', value: dashboard.stats.ordersThisMonth, icon: '📈', color: 'bg-pink-500' },
+      { title: 'Total Pesanan', value: dashboard.stats.totalOrders, icon: ShoppingCart, tone: 'bg-blue-50 text-blue-600' },
+      { title: 'Pendapatan Bulan Ini', value: formatCurrency(dashboard.stats.revenueThisMonth), icon: Wallet, tone: 'bg-emerald-50 text-emerald-600' },
+      { title: 'Produk Aktif', value: dashboard.stats.totalProducts, icon: Package, tone: 'bg-violet-50 text-violet-600' },
+      { title: 'Total Pengguna', value: dashboard.stats.totalUsers, icon: Users, tone: 'bg-amber-50 text-amber-600' },
+      { title: 'Langganan Aktif', value: dashboard.stats.totalSubscriptions, icon: Repeat, tone: 'bg-cyan-50 text-cyan-600' },
+      { title: 'Pesanan Bulan Ini', value: dashboard.stats.ordersThisMonth, icon: TrendingUp, tone: 'bg-pink-50 text-pink-600' },
     ];
   }, [dashboard]);
 
@@ -89,27 +100,28 @@ export default function AdminReportsPage() {
     return Math.max(...sales.chart.map((d) => d.revenue), 1);
   }, [sales]);
 
-  if (isLoading) return <div className="p-8 text-center text-gray-500">Memuat laporan...</div>;
+  if (isLoading) return <div className="p-8 text-center text-slate-500">Memuat laporan...</div>;
   if (!dashboard || !sales) return null;
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-gray-900">Laporan</h1>
-
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {statCards.map((stat) => (
-          <div key={stat.title} className="rounded-xl bg-white p-6 shadow-sm">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-500">{stat.title}</p>
-                <p className="mt-1 text-2xl font-bold text-gray-900">{stat.value}</p>
-              </div>
-              <div className={`${stat.color} flex h-12 w-12 items-center justify-center rounded-lg text-2xl`}>
-                {stat.icon}
+        {statCards.map((stat) => {
+          const Icon = stat.icon;
+          return (
+            <div key={stat.title} className="card p-5 transition-shadow duration-200 hover:shadow-md">
+              <div className="flex items-center justify-between">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-slate-500">{stat.title}</p>
+                  <p className="mt-2 text-2xl font-bold tabular-nums tracking-tight text-slate-900">{stat.value}</p>
+                </div>
+                <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${stat.tone}`}>
+                  <Icon className="h-5 w-5" strokeWidth={2} />
+                </div>
               </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       <div className="rounded-xl bg-white p-6 shadow-sm">

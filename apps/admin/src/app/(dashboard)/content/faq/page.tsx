@@ -4,10 +4,10 @@ import { useState, useEffect, useCallback } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import { Plus, Pencil, Trash2, HelpCircle } from 'lucide-react';
 import { api } from '@/lib/api';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
-import { Input } from '@/components/ui/Input';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 
 interface Faq {
@@ -164,98 +164,122 @@ export default function AdminFaqPage() {
         variant="danger"
       />
 
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">FAQ</h1>
-        <button
-          onClick={() => handleOpenModal()}
-          className="rounded-lg bg-primary-500 px-4 py-2 text-sm font-medium text-white hover:bg-primary-600"
-        >
-          + FAQ Baru
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-slate-500">Kelola pertanyaan yang sering diajukan.</p>
+        <button onClick={() => handleOpenModal()} className="btn-primary">
+          <Plus className="h-4 w-4" strokeWidth={2.25} />
+          Tambah FAQ
         </button>
       </div>
 
-      <div className="rounded-xl bg-white shadow-sm">
+      <div className="card overflow-hidden">
         {isLoading ? (
-          <div className="p-8 text-center text-gray-500">Memuat...</div>
+          <div className="space-y-3 p-5" aria-hidden="true">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="h-12 animate-pulse rounded-lg bg-slate-100" />
+            ))}
+          </div>
         ) : faqs.length === 0 ? (
-          <div className="p-8 text-center text-gray-500">Tidak ada FAQ</div>
+          <div className="flex flex-col items-center justify-center px-4 py-16 text-center">
+            <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
+              <HelpCircle className="h-6 w-6" strokeWidth={1.75} />
+            </div>
+            <p className="text-sm font-medium text-slate-900">Tidak ada FAQ</p>
+            <p className="mt-1 text-sm text-slate-500">Tambahkan pertanyaan pertama Anda.</p>
+          </div>
         ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-200 text-left text-gray-500">
-                <th className="p-4 font-medium">Pertanyaan</th>
-                <th className="p-4 font-medium">Kategori</th>
-                <th className="p-4 font-medium">Urutan</th>
-                <th className="p-4 font-medium">Status</th>
-                <th className="p-4 font-medium">Aksi</th>
-              </tr>
-            </thead>
-            <tbody>
-              {faqs.map((faq) => (
-                <tr key={faq.id} className="border-b border-gray-100 hover:bg-gray-50">
-                  <td className="p-4 font-medium text-gray-900 max-w-md truncate">{faq.question}</td>
-                  <td className="p-4 text-gray-600">{faq.category || '-'}</td>
-                  <td className="p-4 text-gray-600">{faq.sortOrder}</td>
-                  <td className="p-4">
-                    <StatusBadge
-                      status={faq.isActive ? 'active' : 'inactive'}
-                      labels={{
-                        active: { label: 'Aktif', color: 'bg-green-100 text-green-800' },
-                        inactive: { label: 'Nonaktif', color: 'bg-gray-100 text-gray-800' },
-                      }}
-                    />
-                  </td>
-                  <td className="p-4 flex gap-2">
-                    <button onClick={() => handleOpenModal(faq)} className="text-primary-500 hover:underline">Edit</button>
-                    <button onClick={() => setDeleteConfirm({ open: true, id: faq.id })} className="text-red-500 hover:underline">Hapus</button>
-                  </td>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[720px] text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 bg-slate-50">
+                  <th className="th">Pertanyaan</th>
+                  <th className="th">Kategori</th>
+                  <th className="th">Urutan</th>
+                  <th className="th">Status</th>
+                  <th className="th text-right">Aksi</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {faqs.map((faq) => (
+                  <tr key={faq.id} className="transition-colors hover:bg-slate-50">
+                    <td className="td max-w-md truncate font-medium text-slate-900">{faq.question}</td>
+                    <td className="td text-slate-600">{faq.category || '-'}</td>
+                    <td className="td tabular-nums text-slate-600">{faq.sortOrder}</td>
+                    <td className="td">
+                      <StatusBadge
+                        status={faq.isActive ? 'active' : 'inactive'}
+                        labels={{
+                          active: { label: 'Aktif', color: 'bg-green-100 text-green-800' },
+                          inactive: { label: 'Nonaktif', color: 'bg-gray-100 text-gray-800' },
+                        }}
+                      />
+                    </td>
+                    <td className="td">
+                      <div className="flex items-center justify-end gap-1">
+                        <button
+                          onClick={() => handleOpenModal(faq)}
+                          className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900"
+                        >
+                          <Pencil className="h-4 w-4" strokeWidth={2} />
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => setDeleteConfirm({ open: true, id: faq.id })}
+                          className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-red-600 transition-colors hover:bg-red-50"
+                        >
+                          <Trash2 className="h-4 w-4" strokeWidth={2} />
+                          Hapus
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
 
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true">
-          <div className="w-full max-w-2xl rounded-xl bg-white p-6 max-h-[90vh] overflow-y-auto">
+          <div className="w-full max-w-2xl rounded-xl border border-slate-200 bg-white p-6 max-h-[90vh] overflow-y-auto">
             <h2 className="mb-4 text-lg font-semibold">{editingFaq ? 'Edit FAQ' : 'FAQ Baru'}</h2>
             <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
               <div>
-                <label className="mb-1.5 block text-sm font-medium text-gray-700">Pertanyaan</label>
+                <label className="mb-1.5 block text-sm font-medium text-slate-700">Pertanyaan</label>
                 <textarea
                   {...register('question')}
                   rows={2}
-                  className={`w-full rounded-lg border p-3 text-sm ${errors.question ? 'border-red-500' : 'border-gray-300'} focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500`}
+                  className={`w-full rounded-lg border p-3 text-sm ${errors.question ? 'border-red-500' : 'border-slate-300'} focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500`}
                 />
                 {errors.question && <p className="mt-1 text-xs text-red-500">{errors.question.message}</p>}
               </div>
               <div>
-                <label className="mb-1.5 block text-sm font-medium text-gray-700">Jawaban</label>
+                <label className="mb-1.5 block text-sm font-medium text-slate-700">Jawaban</label>
                 <textarea
                   {...register('answer')}
                   rows={5}
-                  className={`w-full rounded-lg border p-3 text-sm ${errors.answer ? 'border-red-500' : 'border-gray-300'} focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500`}
+                  className={`w-full rounded-lg border p-3 text-sm ${errors.answer ? 'border-red-500' : 'border-slate-300'} focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500`}
                 />
                 {errors.answer && <p className="mt-1 text-xs text-red-500">{errors.answer.message}</p>}
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="mb-1.5 block text-sm font-medium text-gray-700">Kategori</label>
-                  <Input {...register('category')} placeholder="contoh: Pengiriman" />
+                  <label className="mb-1.5 block text-sm font-medium text-slate-700">Kategori</label>
+                  <input {...register('category')} placeholder="contoh: Pengiriman" className="input w-full" />
                 </div>
                 <div>
-                  <label className="mb-1.5 block text-sm font-medium text-gray-700">Urutan</label>
-                  <Input type="number" {...register('sortOrder', { valueAsNumber: true })} />
+                  <label className="mb-1.5 block text-sm font-medium text-slate-700">Urutan</label>
+                  <input type="number" {...register('sortOrder', { valueAsNumber: true })} className="input w-full" />
                 </div>
               </div>
               <label className="flex items-center gap-2">
-                <input type="checkbox" {...register('isActive')} className="rounded" />
+                <input type="checkbox" {...register('isActive')} className="rounded border-slate-300" />
                 <span className="text-sm">Aktif</span>
               </label>
               <div className="mt-6 flex justify-end gap-2">
-                <button type="button" onClick={handleCloseModal} className="rounded-lg border border-gray-300 px-4 py-2 text-sm">Batal</button>
-                <button type="submit" disabled={isSubmitting} className="rounded-lg bg-primary-500 px-4 py-2 text-sm text-white hover:bg-primary-600 disabled:opacity-50">
+                <button type="button" onClick={handleCloseModal} className="btn-secondary">Batal</button>
+                <button type="submit" disabled={isSubmitting} className="btn-primary">
                   {isSubmitting ? 'Menyimpan...' : 'Simpan'}
                 </button>
               </div>

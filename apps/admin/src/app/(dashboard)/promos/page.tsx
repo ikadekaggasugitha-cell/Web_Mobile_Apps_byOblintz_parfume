@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import { Plus, Pencil, Trash2, Power, Ticket } from 'lucide-react';
 import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 import type { Pagination } from '@oblintz/shared';
@@ -230,21 +231,20 @@ export default function AdminPromosPage() {
         variant="danger"
       />
 
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">Promo</h1>
-        <button
-          onClick={() => handleOpenModal()}
-          className="rounded-lg bg-primary-500 px-4 py-2 text-sm font-medium text-white hover:bg-primary-600"
-        >
-          + Promo Baru
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-slate-500">Kelola kode promo dan diskon.</p>
+        <button onClick={() => handleOpenModal()} className="btn-primary">
+          <Plus className="h-4 w-4" strokeWidth={2.25} />
+          Tambah Promo
         </button>
       </div>
 
-      <div className="flex gap-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
-          className="h-10 rounded-lg border border-gray-300 px-3 text-sm focus:border-primary-500 focus:outline-none"
+          aria-label="Filter status"
+          className="input sm:w-44"
         >
           <option value="">Semua Status</option>
           <option value="ACTIVE">Aktif</option>
@@ -253,53 +253,81 @@ export default function AdminPromosPage() {
         </select>
       </div>
 
-      <div className="rounded-xl bg-white shadow-sm">
+      <div className="card overflow-hidden">
         {isLoading ? (
-          <div className="p-8 text-center text-gray-500">Memuat...</div>
+          <div className="space-y-3 p-5" aria-hidden="true">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="h-12 animate-pulse rounded-lg bg-slate-100" />
+            ))}
+          </div>
         ) : promos.length === 0 ? (
-          <div className="p-8 text-center text-gray-500">Tidak ada promo</div>
+          <div className="flex flex-col items-center justify-center px-4 py-16 text-center">
+            <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
+              <Ticket className="h-6 w-6" strokeWidth={1.75} />
+            </div>
+            <p className="text-sm font-medium text-slate-900">Tidak ada promo</p>
+            <p className="mt-1 text-sm text-slate-500">
+              Coba ubah filter status atau tambahkan promo baru.
+            </p>
+          </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full min-w-[760px] text-sm">
               <thead>
-                <tr className="border-b border-gray-200 text-left text-gray-500">
-                  <th className="p-4 font-medium">Kode</th>
-                  <th className="p-4 font-medium">Nama</th>
-                  <th className="p-4 font-medium">Tipe</th>
-                  <th className="p-4 font-medium">Nilai</th>
-                  <th className="p-4 font-medium">Penggunaan</th>
-                  <th className="p-4 font-medium">Status</th>
-                  <th className="p-4 font-medium">Aksi</th>
+                <tr className="border-b border-slate-200 bg-slate-50">
+                  <th className="th">Kode</th>
+                  <th className="th">Nama</th>
+                  <th className="th">Tipe</th>
+                  <th className="th">Nilai</th>
+                  <th className="th">Penggunaan</th>
+                  <th className="th">Status</th>
+                  <th className="th text-right">Aksi</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-slate-100">
                 {promos.map((promo) => (
-                  <tr key={promo.id} className="border-b border-gray-100 hover:bg-gray-50">
-                    <td className="p-4 font-medium text-gray-900">{promo.code}</td>
-                    <td className="p-4 text-gray-600">{promo.name || '-'}</td>
-                    <td className="p-4">
+                  <tr key={promo.id} className="transition-colors hover:bg-slate-50">
+                    <td className="td font-medium text-slate-900">{promo.code}</td>
+                    <td className="td text-slate-600">{promo.name || '-'}</td>
+                    <td className="td">
                       <StatusBadge status={promo.type} labels={TYPE_LABELS} />
                     </td>
-                    <td className="p-4">
+                    <td className="td tabular-nums">
                       {promo.type === 'PERCENTAGE'
                         ? `${promo.value}%`
                         : promo.type === 'FIXED'
                         ? formatCurrency(promo.value)
                         : 'Gratis Ongkir'}
                     </td>
-                    <td className="p-4 text-gray-600">
+                    <td className="td tabular-nums text-slate-600">
                       {promo.usedCount}{promo.usageLimit ? ` / ${promo.usageLimit}` : ''}
                     </td>
-                    <td className="p-4">
+                    <td className="td">
                       <StatusBadge status={promo.status} labels={STATUS_LABELS} />
                     </td>
-                    <td className="p-4">
-                      <div className="flex gap-2">
-                        <button onClick={() => handleOpenModal(promo)} className="text-primary-500 hover:underline">Edit</button>
-                        <button onClick={() => handleToggleStatus(promo)} className="text-yellow-600 hover:underline">
+                    <td className="td">
+                      <div className="flex items-center justify-end gap-1">
+                        <button
+                          onClick={() => handleOpenModal(promo)}
+                          className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900"
+                        >
+                          <Pencil className="h-4 w-4" strokeWidth={2} />
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => handleToggleStatus(promo)}
+                          className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900"
+                        >
+                          <Power className="h-4 w-4" strokeWidth={2} />
                           {promo.status === 'ACTIVE' ? 'Nonaktifkan' : 'Aktifkan'}
                         </button>
-                        <button onClick={() => setDeleteConfirm({ open: true, id: promo.id })} className="text-red-500 hover:underline">Hapus</button>
+                        <button
+                          onClick={() => setDeleteConfirm({ open: true, id: promo.id })}
+                          className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-red-600 transition-colors hover:bg-red-50"
+                        >
+                          <Trash2 className="h-4 w-4" strokeWidth={2} />
+                          Hapus
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -310,41 +338,50 @@ export default function AdminPromosPage() {
         )}
 
         {pagination && pagination.totalPages > 1 && (
-          <div className="flex justify-center gap-2 border-t border-gray-200 p-4">
-            {paginationPages.map((p) => (
-              <button
-                key={p}
-                onClick={() => handlePageChange(p)}
-                className={`h-8 rounded-lg px-3 text-sm ${
-                  p === pagination.page
-                    ? 'bg-primary-500 text-white'
-                    : 'bg-gray-100 hover:bg-gray-200'
-                }`}
-              >
-                {p}
-              </button>
-            ))}
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 px-4 py-3">
+            <p className="text-xs text-slate-500">
+              Halaman{' '}
+              <span className="font-medium text-slate-700">{pagination.page}</span>{' '}
+              dari{' '}
+              <span className="font-medium text-slate-700">{pagination.totalPages}</span>
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {paginationPages.map((p) => (
+                <button
+                  key={p}
+                  onClick={() => handlePageChange(p)}
+                  aria-current={p === pagination.page ? 'page' : undefined}
+                  className={`h-8 min-w-8 rounded-lg px-2.5 text-sm font-medium transition-colors ${
+                    p === pagination.page
+                      ? 'bg-primary-600 text-white'
+                      : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  {p}
+                </button>
+              ))}
+            </div>
           </div>
         )}
       </div>
 
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true">
-          <div className="w-full max-w-lg rounded-xl bg-white p-6 max-h-[90vh] overflow-y-auto">
+          <div className="w-full max-w-lg rounded-xl border border-slate-200 bg-white p-6 max-h-[90vh] overflow-y-auto">
             <h2 className="mb-4 text-lg font-semibold">{editingPromo ? 'Edit Promo' : 'Promo Baru'}</h2>
             <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
               <div>
-                <label className="mb-1.5 block text-sm font-medium text-gray-700">Kode Promo</label>
+                <label className="mb-1.5 block text-sm font-medium text-slate-700">Kode Promo</label>
                 <Input {...register('code')} error={errors.code?.message} placeholder="CONTOH10" />
               </div>
               <div>
-                <label className="mb-1.5 block text-sm font-medium text-gray-700">Nama</label>
+                <label className="mb-1.5 block text-sm font-medium text-slate-700">Nama</label>
                 <Input {...register('name')} error={errors.name?.message} placeholder="Diskon 10%" />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="mb-1.5 block text-sm font-medium text-gray-700">Tipe</label>
-                  <select {...register('type')} className="h-10 w-full rounded-lg border border-gray-300 px-3 text-sm">
+                  <label className="mb-1.5 block text-sm font-medium text-slate-700">Tipe</label>
+                  <select {...register('type')} className="input w-full">
                     <option value="PERCENTAGE">Persen (%)</option>
                     <option value="FIXED">Nominal (Rp)</option>
                     <option value="FREE_SHIPPING">Gratis Ongkir</option>
@@ -352,7 +389,7 @@ export default function AdminPromosPage() {
                 </div>
                 {watchType !== 'FREE_SHIPPING' && (
                   <div>
-                    <label className="mb-1.5 block text-sm font-medium text-gray-700">
+                    <label className="mb-1.5 block text-sm font-medium text-slate-700">
                       Nilai {watchType === 'PERCENTAGE' ? '(%)' : '(Rp)'}
                     </label>
                     <Input type="number" {...register('value', { valueAsNumber: true })} error={errors.value?.message} />
@@ -361,25 +398,25 @@ export default function AdminPromosPage() {
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="mb-1.5 block text-sm font-medium text-gray-700">Min Order (Rp)</label>
+                  <label className="mb-1.5 block text-sm font-medium text-slate-700">Min Order (Rp)</label>
                   <Input type="number" {...register('minOrder', { valueAsNumber: true })} />
                 </div>
                 <div>
-                  <label className="mb-1.5 block text-sm font-medium text-gray-700">Max Diskon (Rp)</label>
+                  <label className="mb-1.5 block text-sm font-medium text-slate-700">Max Diskon (Rp)</label>
                   <Input type="number" {...register('maxDiscount', { valueAsNumber: true })} />
                 </div>
               </div>
               <div>
-                <label className="mb-1.5 block text-sm font-medium text-gray-700">Batas Penggunaan</label>
+                <label className="mb-1.5 block text-sm font-medium text-slate-700">Batas Penggunaan</label>
                 <Input type="number" {...register('usageLimit', { valueAsNumber: true })} />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="mb-1.5 block text-sm font-medium text-gray-700">Tanggal Mulai</label>
+                  <label className="mb-1.5 block text-sm font-medium text-slate-700">Tanggal Mulai</label>
                   <Input type="datetime-local" {...register('startDate')} />
                 </div>
                 <div>
-                  <label className="mb-1.5 block text-sm font-medium text-gray-700">Tanggal Berakhir</label>
+                  <label className="mb-1.5 block text-sm font-medium text-slate-700">Tanggal Berakhir</label>
                   <Input type="datetime-local" {...register('endDate')} />
                 </div>
               </div>
@@ -388,8 +425,8 @@ export default function AdminPromosPage() {
                 <span className="text-sm">Aktif</span>
               </label>
               <div className="mt-6 flex justify-end gap-2">
-                <button type="button" onClick={handleCloseModal} className="rounded-lg border border-gray-300 px-4 py-2 text-sm">Batal</button>
-                <button type="submit" disabled={isSubmitting} className="rounded-lg bg-primary-500 px-4 py-2 text-sm text-white hover:bg-primary-600 disabled:opacity-50">
+                <button type="button" onClick={handleCloseModal} className="btn-secondary">Batal</button>
+                <button type="submit" disabled={isSubmitting} className="btn-primary">
                   {isSubmitting ? 'Menyimpan...' : 'Simpan'}
                 </button>
               </div>
