@@ -1,12 +1,15 @@
 import { FastifyInstance } from 'fastify';
-import prisma from '../../config/database';
+import { db } from '../../db';
+import { products, categories } from '../../db/schema';
+import { eq, and, inArray } from 'drizzle-orm';
 import { handleRouteError } from '../../lib/errors';
 import { redis } from '../../config/redis';
 import { requireAuth } from '../../middleware/auth';
 import { addToCartSchema, updateCartItemSchema, applyPromoSchema } from './cart.schema';
+import { promoCodes } from '../../db/schema/promos';
 
-const CART_TTL = 30 * 24 * 60 * 60; // 30 hari
-const LOCK_TTL = 5000; // 5 seconds lock
+const CART_TTL = 30 * 24 * 60 * 60;
+const LOCK_TTL = 5000;
 
 interface CartItem {
   productId: string;
@@ -34,13 +37,11 @@ async function releaseLock(key: string): Promise<void> {
 }
 
 export async function cartRoutes(app: FastifyInstance) {
-  // ==================== GET CART ====================
   app.get('/', {
     preHandler: [requireAuth],
   }, async (request, reply) => {
     const items = await getCart(request.userId!);
 
-    // Ambil detail produk
     if (items.length === 0) {
       return reply.status(200).send({
         success: true,
@@ -49,14 +50,21 @@ export async function cartRoutes(app: FastifyInstance) {
     }
 
     const productIds = items.map((i) => i.productId);
-    const products: any[] = await prisma.product.findMany({
-      where: { id: { in: productIds }, status: 'ACTIVE' },
-      include: {
-        category: { select: { name: true } },
-      },
-    });
+    const productRows = await db.select({
+      id: products.id,
+      name: products.name,
+      slug: products.slug,
+      price: products.price,
+      comparePrice: products.comparePrice,
+      images: products.images,
+      stock: products.stock,
+      categoryName: categories.name,
+    })
+      .from(products)
+      .leftJoin(categories, eq(products.categoryId, categories.id))
+      .where(and(inArray(products.id, productIds), eq(products.status, 'ACTIVE')));
 
-    const productMap = new Map(products.map((p: any) => [p.id, p]));
+    const productMap = new Map(productRows.map((p) => [p.id, p]));
 
     const cartItems = items
       .map((item) => {
@@ -74,7 +82,7 @@ export async function cartRoutes(app: FastifyInstance) {
             comparePrice: product.comparePrice,
             images: product.images,
             stock: product.stock,
-            category: product.category?.name,
+            category: product.categoryName,
           },
           subtotal: Number(product.price) * item.quantity,
         };
@@ -93,17 +101,16 @@ export async function cartRoutes(app: FastifyInstance) {
     });
   });
 
-  // ==================== ADD TO CART ====================
   app.post('/items', {
     preHandler: [requireAuth],
   }, async (request, reply) => {
     try {
       const input = addToCartSchema.parse(request.body);
 
-      // Cek produk exists & stok
-      const product = await prisma.product.findUnique({
-        where: { id: input.productId, status: 'ACTIVE' },
-      });
+      const [product] = await db.select()
+        .from(products)
+        .where(and(eq(products.id, input.productId), eq(products.status, 'ACTIVE')))
+        .limit(1);
 
       if (!product) {
         return reply.status(404).send({
@@ -119,7 +126,6 @@ export async function cartRoutes(app: FastifyInstance) {
         });
       }
 
-      // Acquire lock untuk prevent concurrent modification
       const lockKey = `cart:${request.userId}`;
       if (!await acquireLock(lockKey)) {
         return reply.status(429).send({
@@ -134,7 +140,6 @@ export async function cartRoutes(app: FastifyInstance) {
         const existingIndex = cart.findIndex((i) => i.productId === input.productId);
 
         if (existingIndex >= 0) {
-          // Update quantity
           const newQty = cart[existingIndex].quantity + input.quantity;
           if (newQty > 10) {
             return reply.status(400).send({
@@ -151,7 +156,6 @@ export async function cartRoutes(app: FastifyInstance) {
           cart[existingIndex].quantity = newQty;
           cart[existingIndex].giftWrap = input.giftWrap || cart[existingIndex].giftWrap;
         } else {
-          // Tambah baru
           cart.push({
             productId: input.productId,
             quantity: input.quantity,
@@ -175,7 +179,6 @@ export async function cartRoutes(app: FastifyInstance) {
     }
   });
 
-  // ==================== UPDATE CART ITEM ====================
   app.put('/items/:productId', {
     preHandler: [requireAuth],
   }, async (request, reply) => {
@@ -183,9 +186,10 @@ export async function cartRoutes(app: FastifyInstance) {
       const { productId } = request.params as { productId: string };
       const input = updateCartItemSchema.parse(request.body);
 
-      const product = await prisma.product.findUnique({
-        where: { id: productId, status: 'ACTIVE' },
-      });
+      const [product] = await db.select()
+        .from(products)
+        .where(and(eq(products.id, productId), eq(products.status, 'ACTIVE')))
+        .limit(1);
 
       if (!product) {
         return reply.status(404).send({
@@ -201,7 +205,6 @@ export async function cartRoutes(app: FastifyInstance) {
         });
       }
 
-      // Acquire lock
       const lockKey = `cart:${request.userId}`;
       if (!await acquireLock(lockKey)) {
         return reply.status(429).send({
@@ -240,13 +243,11 @@ export async function cartRoutes(app: FastifyInstance) {
     }
   });
 
-  // ==================== REMOVE CART ITEM ====================
   app.delete('/items/:productId', {
     preHandler: [requireAuth],
   }, async (request, reply) => {
     const { productId } = request.params as { productId: string };
 
-    // Acquire lock
     const lockKey = `cart:${request.userId}`;
     if (!await acquireLock(lockKey)) {
       return reply.status(429).send({
@@ -278,7 +279,6 @@ export async function cartRoutes(app: FastifyInstance) {
     });
   });
 
-  // ==================== CLEAR CART ====================
   app.delete('/', {
     preHandler: [requireAuth],
   }, async (request, reply) => {
@@ -290,16 +290,16 @@ export async function cartRoutes(app: FastifyInstance) {
     });
   });
 
-  // ==================== APPLY PROMO ====================
   app.post('/apply-promo', {
     preHandler: [requireAuth],
   }, async (request, reply) => {
     try {
       const input = applyPromoSchema.parse(request.body);
 
-      const promo = await prisma.promoCode.findUnique({
-        where: { code: input.code.toUpperCase() },
-      });
+      const [promo] = await db.select()
+        .from(promoCodes)
+        .where(eq(promoCodes.code, input.code.toUpperCase()))
+        .limit(1);
 
       if (!promo) {
         return reply.status(404).send({
@@ -336,7 +336,6 @@ export async function cartRoutes(app: FastifyInstance) {
         });
       }
 
-      // Hitung subtotal cart
       const cart = await getCart(request.userId!);
       if (cart.length === 0) {
         return reply.status(400).send({
@@ -346,17 +345,16 @@ export async function cartRoutes(app: FastifyInstance) {
       }
 
       const productIds = cart.map((i) => i.productId);
-      const products: any[] = await prisma.product.findMany({
-        where: { id: { in: productIds } },
-      });
-    const productMap = new Map(products.map((p: any) => [p.id, p]));
+      const productRows = await db.select()
+        .from(products)
+        .where(inArray(products.id, productIds));
+      const productMap = new Map(productRows.map((p) => [p.id, p]));
 
       const subtotal = cart.reduce((sum, item) => {
         const product = productMap.get(item.productId);
         return sum + (product ? Number(product.price) * item.quantity : 0);
       }, 0);
 
-      // Cek min order
       if (promo.minOrder && subtotal < Number(promo.minOrder)) {
         return reply.status(400).send({
           success: false,
@@ -367,7 +365,6 @@ export async function cartRoutes(app: FastifyInstance) {
         });
       }
 
-      // Hitung diskon
       let discount = 0;
       if (promo.type === 'PERCENTAGE') {
         discount = subtotal * (Number(promo.value) / 100);

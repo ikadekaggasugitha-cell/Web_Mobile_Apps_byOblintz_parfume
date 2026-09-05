@@ -1,5 +1,7 @@
 import { FastifyInstance } from 'fastify';
-import prisma from '../../config/database';
+import { eq, desc, count } from 'drizzle-orm';
+import { db } from '../../db';
+import { promoCodes } from '../../db/schema';
 import { handleRouteError } from '../../lib/errors';
 import { requireAuth, requireAdmin } from '../../middleware/auth';
 import { createPromoSchema, updatePromoSchema, validatePromoSchema } from './promo.schema';
@@ -10,9 +12,11 @@ export async function promoRoutes(app: FastifyInstance) {
     try {
       const input = validatePromoSchema.parse(request.body);
 
-      const promo = await prisma.promoCode.findUnique({
-        where: { code: input.code.toUpperCase() },
-      });
+      const [promo] = await db
+        .select()
+        .from(promoCodes)
+        .where(eq(promoCodes.code, input.code.toUpperCase()))
+        .limit(1);
 
       if (!promo) {
         return reply.status(404).send({
@@ -60,7 +64,6 @@ export async function promoRoutes(app: FastifyInstance) {
         });
       }
 
-      // Hitung diskon
       let discount = 0;
       if (promo.type === 'PERCENTAGE') {
         discount = input.subtotal * (Number(promo.value) / 100);
@@ -70,7 +73,7 @@ export async function promoRoutes(app: FastifyInstance) {
       } else if (promo.type === 'FIXED') {
         discount = Math.min(Number(promo.value), input.subtotal);
       } else if (promo.type === 'FREE_SHIPPING') {
-        discount = 15000; // Standard shipping cost
+        discount = 15000;
       }
 
       return reply.status(200).send({
@@ -104,17 +107,20 @@ export async function promoRoutes(app: FastifyInstance) {
     const limitNum = Math.min(100, Math.max(1, parseInt(limit)));
     const skip = (pageNum - 1) * limitNum;
 
-    const where: any = {};
-    if (status) where.status = status;
+    const whereClause = status ? eq(promoCodes.status, status as any) : undefined;
 
-    const [promos, total] = await Promise.all([
-      prisma.promoCode.findMany({
-        where,
-        orderBy: { createdAt: 'desc' },
-        skip,
-        take: limitNum,
-      }),
-      prisma.promoCode.count({ where }),
+    const [promos, [{ total }]] = await Promise.all([
+      db
+        .select()
+        .from(promoCodes)
+        .where(whereClause)
+        .orderBy(desc(promoCodes.createdAt))
+        .limit(limitNum)
+        .offset(skip),
+      db
+        .select({ total: count() })
+        .from(promoCodes)
+        .where(whereClause),
     ]);
 
     return reply.status(200).send({
@@ -124,8 +130,8 @@ export async function promoRoutes(app: FastifyInstance) {
         pagination: {
           page: pageNum,
           limit: limitNum,
-          total,
-          totalPages: Math.ceil(total / limitNum),
+          total: Number(total),
+          totalPages: Math.ceil(Number(total) / limitNum),
         },
       },
     });
@@ -138,10 +144,11 @@ export async function promoRoutes(app: FastifyInstance) {
     try {
       const input = createPromoSchema.parse(request.body);
 
-      // Cek kode unik
-      const existing = await prisma.promoCode.findUnique({
-        where: { code: input.code },
-      });
+      const [existing] = await db
+        .select()
+        .from(promoCodes)
+        .where(eq(promoCodes.code, input.code))
+        .limit(1);
 
       if (existing) {
         return reply.status(409).send({
@@ -150,20 +157,21 @@ export async function promoRoutes(app: FastifyInstance) {
         });
       }
 
-      const promo = await prisma.promoCode.create({
-        data: {
+      const [promo] = await db
+        .insert(promoCodes)
+        .values({
           code: input.code,
           name: input.name,
           type: input.type,
-          value: input.value,
-          minOrder: input.minOrder,
-          maxDiscount: input.maxDiscount,
+          value: String(input.value),
+          minOrder: input.minOrder ? String(input.minOrder) : null,
+          maxDiscount: input.maxDiscount ? String(input.maxDiscount) : null,
           usageLimit: input.usageLimit,
           startDate: input.startDate ? new Date(input.startDate) : null,
           endDate: input.endDate ? new Date(input.endDate) : null,
           status: input.isActive ? 'ACTIVE' : 'INACTIVE',
-        },
-      });
+        })
+        .returning();
 
       return reply.status(201).send({ success: true, data: promo });
     } catch (error) {
@@ -177,8 +185,13 @@ export async function promoRoutes(app: FastifyInstance) {
   }, async (request, reply) => {
     const { id } = request.params as { id: string };
 
-    const promo = await prisma.promoCode.findUnique({ where: { id } });
-    if (!promo) {
+    const [existingPromo] = await db
+      .select()
+      .from(promoCodes)
+      .where(eq(promoCodes.id, id))
+      .limit(1);
+
+    if (!existingPromo) {
       return reply.status(404).send({
         success: false,
         error: { code: 'NOT_FOUND', message: 'Promo tidak ditemukan' },
@@ -188,26 +201,28 @@ export async function promoRoutes(app: FastifyInstance) {
     try {
       const input = updatePromoSchema.parse(request.body);
 
-      const updated = await prisma.promoCode.update({
-        where: { id },
-        data: {
-          ...(input.name && { name: input.name }),
-          ...(input.type && { type: input.type }),
-          ...(input.value !== undefined && { value: input.value }),
-          ...(input.minOrder !== undefined && { minOrder: input.minOrder }),
-          ...(input.maxDiscount !== undefined && { maxDiscount: input.maxDiscount }),
-          ...(input.usageLimit !== undefined && { usageLimit: input.usageLimit }),
-          ...(input.startDate !== undefined && {
-            startDate: input.startDate ? new Date(input.startDate) : null,
-          }),
-          ...(input.endDate !== undefined && {
-            endDate: input.endDate ? new Date(input.endDate) : null,
-          }),
-          ...(input.isActive !== undefined && {
-            status: input.isActive ? 'ACTIVE' : 'INACTIVE',
-          }),
-        },
-      });
+      const updateData: Record<string, any> = {};
+      if (input.name) updateData.name = input.name;
+      if (input.type) updateData.type = input.type;
+      if (input.value !== undefined) updateData.value = String(input.value);
+      if (input.minOrder !== undefined) updateData.minOrder = input.minOrder ? String(input.minOrder) : null;
+      if (input.maxDiscount !== undefined) updateData.maxDiscount = input.maxDiscount ? String(input.maxDiscount) : null;
+      if (input.usageLimit !== undefined) updateData.usageLimit = input.usageLimit;
+      if (input.startDate !== undefined) {
+        updateData.startDate = input.startDate ? new Date(input.startDate) : null;
+      }
+      if (input.endDate !== undefined) {
+        updateData.endDate = input.endDate ? new Date(input.endDate) : null;
+      }
+      if (input.isActive !== undefined) {
+        updateData.status = input.isActive ? 'ACTIVE' : 'INACTIVE';
+      }
+
+      const [updated] = await db
+        .update(promoCodes)
+        .set(updateData)
+        .where(eq(promoCodes.id, id))
+        .returning();
 
       return reply.status(200).send({ success: true, data: updated });
     } catch (error) {
@@ -221,15 +236,20 @@ export async function promoRoutes(app: FastifyInstance) {
   }, async (request, reply) => {
     const { id } = request.params as { id: string };
 
-    const promo = await prisma.promoCode.findUnique({ where: { id } });
-    if (!promo) {
+    const [existing] = await db
+      .select()
+      .from(promoCodes)
+      .where(eq(promoCodes.id, id))
+      .limit(1);
+
+    if (!existing) {
       return reply.status(404).send({
         success: false,
         error: { code: 'NOT_FOUND', message: 'Promo tidak ditemukan' },
       });
     }
 
-    await prisma.promoCode.delete({ where: { id } });
+    await db.delete(promoCodes).where(eq(promoCodes.id, id));
 
     return reply.status(200).send({
       success: true,
@@ -243,20 +263,26 @@ export async function promoRoutes(app: FastifyInstance) {
   }, async (request, reply) => {
     const { id } = request.params as { id: string };
 
-    const promo = await prisma.promoCode.findUnique({ where: { id } });
-    if (!promo) {
+    const [existing] = await db
+      .select()
+      .from(promoCodes)
+      .where(eq(promoCodes.id, id))
+      .limit(1);
+
+    if (!existing) {
       return reply.status(404).send({
         success: false,
         error: { code: 'NOT_FOUND', message: 'Promo tidak ditemukan' },
       });
     }
 
-    const newStatus = promo.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
+    const newStatus = existing.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
 
-    const updated = await prisma.promoCode.update({
-      where: { id },
-      data: { status: newStatus as any },
-    });
+    const [updated] = await db
+      .update(promoCodes)
+      .set({ status: newStatus as any })
+      .where(eq(promoCodes.id, id))
+      .returning();
 
     return reply.status(200).send({
       success: true,

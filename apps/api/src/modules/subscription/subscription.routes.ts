@@ -1,5 +1,8 @@
 import { FastifyInstance } from 'fastify';
-import prisma from '../../config/database';
+import { eq, and, count } from 'drizzle-orm';
+import { db } from '../../db';
+import { subscriptions } from '../../db/schema/subscriptions';
+import { products } from '../../db/schema/products';
 import { handleRouteError } from '../../lib/errors';
 import { requireAuth, requireAdmin } from '../../middleware/auth';
 import { createSubscriptionSchema } from './subscription.schema';
@@ -9,19 +12,19 @@ export async function subscriptionRoutes(app: FastifyInstance) {
   app.get('/', {
     preHandler: [requireAuth],
   }, async (request, reply) => {
-    const subscriptions = await prisma.subscription.findMany({
-      where: { userId: request.userId },
-      include: {
+    const userSubscriptions = await db.query.subscriptions.findMany({
+      where: eq(subscriptions.userId, request.userId!),
+      orderBy: (subscriptions, { desc }) => [desc(subscriptions.createdAt)],
+      with: {
         product: {
-          include: {
-            category: { select: { name: true } },
+          with: {
+            category: true,
           },
         },
       },
-      orderBy: { createdAt: 'desc' },
     });
 
-    return reply.status(200).send({ success: true, data: subscriptions });
+    return reply.status(200).send({ success: true, data: userSubscriptions });
   });
 
   // ==================== GET SUBSCRIPTION DETAIL ====================
@@ -30,15 +33,16 @@ export async function subscriptionRoutes(app: FastifyInstance) {
   }, async (request, reply) => {
     const { id } = request.params as { id: string };
 
-    const subscription = await prisma.subscription.findFirst({
-      where: { id, userId: request.userId },
-      include: {
+    const [subscription] = await db.query.subscriptions.findMany({
+      where: and(eq(subscriptions.id, id), eq(subscriptions.userId, request.userId!)),
+      with: {
         product: {
-          include: {
-            category: { select: { name: true } },
+          with: {
+            category: true,
           },
         },
       },
+      limit: 1,
     });
 
     if (!subscription) {
@@ -59,9 +63,9 @@ export async function subscriptionRoutes(app: FastifyInstance) {
       const input = createSubscriptionSchema.parse(request.body);
 
       // Validasi produk exists
-      const product = await prisma.product.findUnique({
-        where: { id: input.productId, status: 'ACTIVE' },
-      });
+      const [product] = await db.select().from(products).where(
+        and(eq(products.id, input.productId), eq(products.status, 'ACTIVE'))
+      ).limit(1);
 
       if (!product) {
         return reply.status(404).send({
@@ -71,12 +75,13 @@ export async function subscriptionRoutes(app: FastifyInstance) {
       }
 
       // Cek user sudah punya subscription aktif untuk produk ini
-      const existing = await prisma.subscription.findFirst({
-        where: {
-          userId: request.userId,
-          productId: input.productId,
-          status: 'ACTIVE',
-        },
+      const [existing] = await db.query.subscriptions.findMany({
+        where: and(
+          eq(subscriptions.userId, request.userId!),
+          eq(subscriptions.productId, input.productId),
+          eq(subscriptions.status, 'ACTIVE'),
+        ),
+        limit: 1,
       });
 
       if (existing) {
@@ -97,20 +102,24 @@ export async function subscriptionRoutes(app: FastifyInstance) {
         nextDelivery.setMonth(nextDelivery.getMonth() + 3);
       }
 
-      const subscription = await prisma.subscription.create({
-        data: {
-          userId: request.userId!,
-          productId: input.productId,
-          frequency: input.frequency,
-          status: 'ACTIVE',
-          nextDelivery,
+      const [subscription] = await db.insert(subscriptions).values({
+        userId: request.userId!,
+        productId: input.productId,
+        frequency: input.frequency,
+        status: 'ACTIVE',
+        nextDelivery,
+      }).returning();
+
+      // Fetch with product info
+      const [fullSubscription] = await db.query.subscriptions.findMany({
+        where: eq(subscriptions.id, subscription.id),
+        with: {
+          product: true,
         },
-        include: {
-          product: { select: { name: true, price: true, images: true } },
-        },
+        limit: 1,
       });
 
-      return reply.status(201).send({ success: true, data: subscription });
+      return reply.status(201).send({ success: true, data: fullSubscription });
     } catch (error) {
       return handleRouteError(error, reply);
     }
@@ -122,8 +131,13 @@ export async function subscriptionRoutes(app: FastifyInstance) {
   }, async (request, reply) => {
     const { id } = request.params as { id: string };
 
-    const subscription = await prisma.subscription.findFirst({
-      where: { id, userId: request.userId, status: 'ACTIVE' },
+    const [subscription] = await db.query.subscriptions.findMany({
+      where: and(
+        eq(subscriptions.id, id),
+        eq(subscriptions.userId, request.userId!),
+        eq(subscriptions.status, 'ACTIVE'),
+      ),
+      limit: 1,
     });
 
     if (!subscription) {
@@ -133,10 +147,9 @@ export async function subscriptionRoutes(app: FastifyInstance) {
       });
     }
 
-    const updated = await prisma.subscription.update({
-      where: { id },
-      data: { status: 'PAUSED' },
-    });
+    const [updated] = await db.update(subscriptions).set({
+      status: 'PAUSED',
+    }).where(eq(subscriptions.id, id)).returning();
 
     return reply.status(200).send({
       success: true,
@@ -150,8 +163,13 @@ export async function subscriptionRoutes(app: FastifyInstance) {
   }, async (request, reply) => {
     const { id } = request.params as { id: string };
 
-    const subscription = await prisma.subscription.findFirst({
-      where: { id, userId: request.userId, status: 'PAUSED' },
+    const [subscription] = await db.query.subscriptions.findMany({
+      where: and(
+        eq(subscriptions.id, id),
+        eq(subscriptions.userId, request.userId!),
+        eq(subscriptions.status, 'PAUSED'),
+      ),
+      limit: 1,
     });
 
     if (!subscription) {
@@ -169,10 +187,10 @@ export async function subscriptionRoutes(app: FastifyInstance) {
       nextDelivery.setMonth(nextDelivery.getMonth() + 3);
     }
 
-    const updated = await prisma.subscription.update({
-      where: { id },
-      data: { status: 'ACTIVE', nextDelivery },
-    });
+    const [updated] = await db.update(subscriptions).set({
+      status: 'ACTIVE',
+      nextDelivery,
+    }).where(eq(subscriptions.id, id)).returning();
 
     return reply.status(200).send({
       success: true,
@@ -186,8 +204,9 @@ export async function subscriptionRoutes(app: FastifyInstance) {
   }, async (request, reply) => {
     const { id } = request.params as { id: string };
 
-    const subscription = await prisma.subscription.findFirst({
-      where: { id, userId: request.userId },
+    const [subscription] = await db.query.subscriptions.findMany({
+      where: and(eq(subscriptions.id, id), eq(subscriptions.userId, request.userId!)),
+      limit: 1,
     });
 
     if (!subscription) {
@@ -204,10 +223,9 @@ export async function subscriptionRoutes(app: FastifyInstance) {
       });
     }
 
-    const updated = await prisma.subscription.update({
-      where: { id },
-      data: { status: 'CANCELLED' },
-    });
+    const [updated] = await db.update(subscriptions).set({
+      status: 'CANCELLED',
+    }).where(eq(subscriptions.id, id)).returning();
 
     return reply.status(200).send({
       success: true,
@@ -227,29 +245,34 @@ export async function subscriptionRoutes(app: FastifyInstance) {
 
     const pageNum = Math.max(1, parseInt(page));
     const limitNum = Math.min(100, Math.max(1, parseInt(limit)));
-    const skip = (pageNum - 1) * limitNum;
+    const offset = (pageNum - 1) * limitNum;
 
-    const where: any = {};
-    if (status) where.status = status;
+    const whereClause = status ? eq(subscriptions.status, status as any) : undefined;
 
-    const [subscriptions, total] = await Promise.all([
-      prisma.subscription.findMany({
-        where,
-        orderBy: { createdAt: 'desc' },
-        skip,
-        take: limitNum,
-        include: {
-          user: { select: { id: true, name: true, email: true } },
-          product: { select: { id: true, name: true, price: true } },
+    const [allSubscriptions, totalResult] = await Promise.all([
+      db.query.subscriptions.findMany({
+        where: whereClause,
+        orderBy: (subscriptions, { desc }) => [desc(subscriptions.createdAt)],
+        limit: limitNum,
+        offset,
+        with: {
+          user: {
+            columns: { id: true, name: true, email: true },
+          },
+          product: {
+            columns: { id: true, name: true, price: true },
+          },
         },
       }),
-      prisma.subscription.count({ where }),
+      db.select({ count: count() }).from(subscriptions).where(whereClause),
     ]);
+
+    const total = totalResult[0]?.count ?? 0;
 
     return reply.status(200).send({
       success: true,
       data: {
-        subscriptions,
+        subscriptions: allSubscriptions,
         pagination: {
           page: pageNum,
           limit: limitNum,

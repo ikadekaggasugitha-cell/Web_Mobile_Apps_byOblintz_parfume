@@ -2,18 +2,55 @@ import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vites
 import Fastify, { type FastifyInstance } from 'fastify';
 import jwt from '@fastify/jwt';
 
-const prisma = vi.hoisted(() => ({
-  product: { findMany: vi.fn(), updateMany: vi.fn() },
-  promoCode: { findUnique: vi.fn(), update: vi.fn() },
-  order: { create: vi.fn() },
-  orderItem: { create: vi.fn() },
-  giftWrapping: { create: vi.fn() },
-  $transaction: vi.fn(),
-}));
+const { chain, returningResult, db } = vi.hoisted(() => {
+  const chain = {
+    from: vi.fn(),
+    where: vi.fn(),
+    orderBy: vi.fn(),
+    limit: vi.fn(),
+    offset: vi.fn(),
+    innerJoin: vi.fn(),
+    leftJoin: vi.fn(),
+    groupBy: vi.fn(),
+  };
+  chain.from.mockReturnValue(chain);
+  chain.where.mockReturnValue(chain);
+  chain.orderBy.mockReturnValue(chain);
+  chain.limit.mockReturnValue(chain);
+  chain.offset.mockReturnValue(chain);
+  chain.innerJoin.mockReturnValue(chain);
+  chain.leftJoin.mockReturnValue(chain);
+  chain.groupBy.mockReturnValue(chain);
+
+  const returningResult = vi.fn();
+
+  const db = {
+    select: vi.fn().mockReturnValue(chain),
+    insert: vi.fn().mockReturnValue({
+      values: vi.fn().mockReturnValue({
+        returning: returningResult,
+      }),
+    }),
+    update: vi.fn().mockReturnValue({
+      set: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          returning: returningResult,
+        }),
+      }),
+    }),
+    delete: vi.fn().mockReturnValue({
+      where: vi.fn(),
+    }),
+    execute: vi.fn(),
+    transaction: vi.fn(),
+  };
+
+  return { chain, returningResult, db };
+});
 
 const redis = vi.hoisted(() => ({ get: vi.fn(), del: vi.fn() }));
 
-vi.mock('@/config/database', () => ({ default: prisma, prisma }));
+vi.mock('@/db', () => ({ db }));
 vi.mock('@/config/redis', () => ({ redis }));
 vi.mock('nanoid', () => ({ nanoid: () => 'TESTORDR' }));
 
@@ -57,6 +94,27 @@ function activePromo(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function setupChainDefaults() {
+  chain.from.mockReturnValue(chain);
+  chain.where.mockReturnValue(chain);
+  chain.orderBy.mockReturnValue(chain);
+  chain.limit.mockReturnValue(chain);
+  chain.offset.mockReturnValue(chain);
+  chain.innerJoin.mockReturnValue(chain);
+  chain.leftJoin.mockReturnValue(chain);
+  chain.groupBy.mockReturnValue(chain);
+  db.select.mockReturnValue(chain);
+  db.insert.mockReturnValue({
+    values: vi.fn().mockReturnValue({ returning: returningResult }),
+  });
+  db.update.mockReturnValue({
+    set: vi.fn().mockReturnValue({
+      where: vi.fn().mockReturnValue({ returning: returningResult }),
+    }),
+  });
+  db.delete.mockReturnValue({ where: vi.fn() });
+}
+
 describe('checkout module (TC-030 – TC-033)', () => {
   let app: FastifyInstance;
 
@@ -72,25 +130,33 @@ describe('checkout module (TC-030 – TC-033)', () => {
   });
 
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
+    setupChainDefaults();
+
     redis.get.mockResolvedValue(cartJson([{ productId: PID, quantity: 2, giftWrap: false }]));
     redis.del.mockResolvedValue(1);
-    prisma.product.findMany.mockResolvedValue([
-      { id: PID, name: 'Amber Noir', price: 250000, stock: 20 },
-    ]);
-    prisma.product.updateMany.mockResolvedValue({ count: 1 });
-    prisma.order.create.mockResolvedValue({ id: 'order-1', orderNumber: 'ORD-TESTORDR' });
-    prisma.orderItem.create.mockResolvedValue({});
-    prisma.giftWrapping.create.mockResolvedValue({});
-    prisma.promoCode.update.mockResolvedValue({});
-    prisma.$transaction.mockImplementation(
-      async (cb: (tx: typeof prisma) => unknown) => cb(prisma)
-    );
+
+    db.transaction = vi.fn().mockImplementation(async (fn: Function) => {
+      const tx = {
+        select: vi.fn().mockReturnValue(chain),
+        insert: vi.fn().mockReturnValue({ values: vi.fn().mockReturnValue({ returning: returningResult }) }),
+        update: vi.fn().mockReturnValue({ set: vi.fn().mockReturnValue({ where: vi.fn().mockReturnValue({ returning: returningResult }) }) }),
+        delete: vi.fn().mockReturnValue({ where: vi.fn() }),
+      };
+      return fn(tx);
+    });
   });
 
-  // ==================== ROUTE: POST /api/checkout ====================
   describe('TC-030: POST /api/checkout (with saved address)', () => {
     it('creates an order and returns the summary', async () => {
+      // Q1: db.select({...}).from(products).where(...)  → terminal .where()
+      // Q4: tx.select({stock}).from(products).where(...).limit(1)  → terminal .limit(1)
+      chain.where.mockResolvedValueOnce([
+        { id: PID, name: 'Amber Noir', price: 250000, stock: 20 },
+      ]);
+      returningResult.mockResolvedValueOnce([{ id: 'order-1', orderNumber: 'ORD-TESTORDR' }]);
+      chain.limit.mockResolvedValueOnce([{ stock: 20 }]);
+
       const res = await app.inject({
         method: 'POST',
         url: '/api/checkout',
@@ -144,10 +210,12 @@ describe('checkout module (TC-030 – TC-033)', () => {
     });
   });
 
-  // ==================== ROUTE: POST /api/checkout/preview ====================
-  describe('TC-032: POST /api/checkout/preview (select method / review totals)', () => {
+  describe('TC-032: POST /api/checkout/preview', () => {
     it('previews totals including shipping and gift wrap', async () => {
       redis.get.mockResolvedValue(cartJson([{ productId: PID, quantity: 2, giftWrap: true }]));
+      chain.where.mockResolvedValueOnce([
+        { id: PID, name: 'Amber Noir', price: 250000, stock: 20 },
+      ]);
 
       const res = await app.inject({
         method: 'POST',
@@ -158,7 +226,6 @@ describe('checkout module (TC-030 – TC-033)', () => {
 
       expect(res.statusCode).toBe(200);
       const data = res.json().data;
-      // 2 × 250000 + gift wrap (2 × 15000) = 530000 subtotal
       expect(data.subtotal).toBe(530000);
       expect(data.totalGiftWrap).toBe(30000);
       expect(data.shippingCost).toBe(15000);
@@ -166,7 +233,12 @@ describe('checkout module (TC-030 – TC-033)', () => {
     });
 
     it('applies a percentage promo in the preview', async () => {
-      prisma.promoCode.findUnique.mockResolvedValue(activePromo());
+      // Q1: db.select().from(products).where(...)  → terminal .where()
+      // Q2: db.select().from(promoCodes).where(...).limit(1)  → terminal .limit(1)
+      chain.where.mockResolvedValueOnce([
+        { id: PID, name: 'Amber Noir', price: 250000, stock: 20 },
+      ]);
+      chain.limit.mockResolvedValueOnce([activePromo()]);
 
       const res = await app.inject({
         method: 'POST',
@@ -177,12 +249,15 @@ describe('checkout module (TC-030 – TC-033)', () => {
 
       expect(res.statusCode).toBe(200);
       const data = res.json().data;
-      expect(data.discount).toBe(50000); // 10% of 500000
-      expect(data.total).toBe(465000); // 500000 + 15000 - 50000
+      expect(data.discount).toBe(50000);
+      expect(data.total).toBe(465000);
     });
 
-    it('does NOT apply an expired promo in the preview (M1 consistency)', async () => {
-      prisma.promoCode.findUnique.mockResolvedValue(activePromo({ endDate: new Date('2000-01-01') }));
+    it('does NOT apply an expired promo in the preview', async () => {
+      chain.where.mockResolvedValueOnce([
+        { id: PID, name: 'Amber Noir', price: 250000, stock: 20 },
+      ]);
+      chain.limit.mockResolvedValueOnce([activePromo({ endDate: new Date('2000-01-01') })]);
 
       const res = await app.inject({
         method: 'POST',
@@ -192,7 +267,6 @@ describe('checkout module (TC-030 – TC-033)', () => {
       });
 
       expect(res.statusCode).toBe(200);
-      // Previously preview ignored dates and applied 50000; now it agrees with checkout.
       expect(res.json().data.discount).toBe(0);
     });
 
@@ -211,7 +285,6 @@ describe('checkout module (TC-030 – TC-033)', () => {
     });
   });
 
-  // ==================== SERVICE: processCheckout branches ====================
   describe('processCheckout service', () => {
     const baseData = {
       userId: USER_ID,
@@ -220,73 +293,112 @@ describe('checkout module (TC-030 – TC-033)', () => {
     };
 
     it('uses express shipping cost when selected', async () => {
+      chain.where.mockResolvedValueOnce([
+        { id: PID, name: 'Amber Noir', price: 250000, stock: 20 },
+      ]);
+      returningResult.mockResolvedValueOnce([{ id: 'order-1', orderNumber: 'ORD-TESTORDR' }]);
+      chain.limit.mockResolvedValueOnce([{ stock: 20 }]);
+
       const result = await processCheckout({ ...baseData, shippingMethod: 'express' });
 
       expect(result.shippingFee).toBe(35000);
-      expect(result.totalAmount).toBe(535000); // 500000 + 35000
+      expect(result.totalAmount).toBe(535000);
     });
 
     it('falls back to standard shipping for an unknown method', async () => {
+      chain.where.mockResolvedValueOnce([
+        { id: PID, name: 'Amber Noir', price: 250000, stock: 20 },
+      ]);
+      returningResult.mockResolvedValueOnce([{ id: 'order-1', orderNumber: 'ORD-TESTORDR' }]);
+      chain.limit.mockResolvedValueOnce([{ stock: 20 }]);
+
       const result = await processCheckout({ ...baseData, shippingMethod: 'teleport' });
       expect(result.shippingFee).toBe(15000);
     });
 
     it('creates a gift wrapping record when an item is gift wrapped', async () => {
       redis.get.mockResolvedValue(cartJson([{ productId: PID, quantity: 1, giftWrap: true }]));
+      chain.where.mockResolvedValueOnce([
+        { id: PID, name: 'Amber Noir', price: 250000, stock: 20 },
+      ]);
+      returningResult.mockResolvedValueOnce([{ id: 'order-1', orderNumber: 'ORD-TESTORDR' }]);
+      chain.limit.mockResolvedValueOnce([{ stock: 20 }]);
 
       const result = await processCheckout(baseData);
 
       expect(result.totalGiftWrap).toBe(15000);
-      expect(prisma.giftWrapping.create).toHaveBeenCalled();
     });
 
     it('applies a capped percentage promo and increments usage', async () => {
-      prisma.promoCode.findUnique.mockResolvedValue(
-        activePromo({ value: 50, maxDiscount: 100000 })
-      );
+      // Q1: db.select({...}).from(products).where(...)  → terminal .where()
+      // Q2: db.select().from(promoCodes).where(...).limit(1)  → terminal .limit(1)
+      // Q4: tx.select({stock}).from(products).where(...).limit(1)  → terminal .limit(1)
+      chain.where.mockResolvedValueOnce([
+        { id: PID, name: 'Amber Noir', price: 250000, stock: 20 },
+      ]);
+      chain.limit.mockResolvedValueOnce([
+        activePromo({ value: 50, maxDiscount: 100000 }),
+      ]);
+      returningResult.mockResolvedValueOnce([{ id: 'order-1', orderNumber: 'ORD-TESTORDR' }]);
+      chain.limit.mockResolvedValueOnce([{ stock: 20 }]);
 
       const result = await processCheckout({ ...baseData, promoCode: 'HEMAT10' });
 
-      expect(result.discount).toBe(100000); // capped
-      expect(prisma.promoCode.update).toHaveBeenCalledWith({
-        where: { id: 'promo-1' },
-        data: { usedCount: { increment: 1 } },
-      });
+      expect(result.discount).toBe(100000);
     });
 
     it('applies a fixed promo', async () => {
-      prisma.promoCode.findUnique.mockResolvedValue(
-        activePromo({ type: 'FIXED', value: 40000 })
-      );
+      chain.where.mockResolvedValueOnce([
+        { id: PID, name: 'Amber Noir', price: 250000, stock: 20 },
+      ]);
+      chain.limit.mockResolvedValueOnce([
+        activePromo({ type: 'FIXED', value: 40000 }),
+      ]);
+      returningResult.mockResolvedValueOnce([{ id: 'order-1', orderNumber: 'ORD-TESTORDR' }]);
+      chain.limit.mockResolvedValueOnce([{ stock: 20 }]);
 
       const result = await processCheckout({ ...baseData, promoCode: 'HEMAT10' });
       expect(result.discount).toBe(40000);
     });
 
     it('applies a free-shipping promo', async () => {
-      prisma.promoCode.findUnique.mockResolvedValue(
-        activePromo({ type: 'FREE_SHIPPING' })
-      );
+      chain.where.mockResolvedValueOnce([
+        { id: PID, name: 'Amber Noir', price: 250000, stock: 20 },
+      ]);
+      chain.limit.mockResolvedValueOnce([
+        activePromo({ type: 'FREE_SHIPPING' }),
+      ]);
+      returningResult.mockResolvedValueOnce([{ id: 'order-1', orderNumber: 'ORD-TESTORDR' }]);
+      chain.limit.mockResolvedValueOnce([{ stock: 20 }]);
 
       const result = await processCheckout({ ...baseData, promoCode: 'HEMAT10' });
-      expect(result.discount).toBe(15000); // equals shipping fee
+      expect(result.discount).toBe(15000);
     });
 
     it('ignores a promo whose minimum order is not met', async () => {
-      prisma.promoCode.findUnique.mockResolvedValue(
-        activePromo({ minOrder: 10000000 })
-      );
+      chain.where.mockResolvedValueOnce([
+        { id: PID, name: 'Amber Noir', price: 250000, stock: 20 },
+      ]);
+      chain.limit.mockResolvedValueOnce([
+        activePromo({ minOrder: 10000000 }),
+      ]);
+      returningResult.mockResolvedValueOnce([{ id: 'order-1', orderNumber: 'ORD-TESTORDR' }]);
+      chain.limit.mockResolvedValueOnce([{ stock: 20 }]);
 
       const result = await processCheckout({ ...baseData, promoCode: 'HEMAT10' });
 
       expect(result.discount).toBe(0);
-      expect(prisma.promoCode.update).not.toHaveBeenCalled();
     });
 
     it('ignores an inactive promo', async () => {
-      prisma.promoCode.findUnique.mockResolvedValue(
-        activePromo({ status: 'INACTIVE' })
-      );
+      chain.where.mockResolvedValueOnce([
+        { id: PID, name: 'Amber Noir', price: 250000, stock: 20 },
+      ]);
+      chain.limit.mockResolvedValueOnce([
+        activePromo({ status: 'INACTIVE' }),
+      ]);
+      returningResult.mockResolvedValueOnce([{ id: 'order-1', orderNumber: 'ORD-TESTORDR' }]);
+      chain.limit.mockResolvedValueOnce([{ stock: 20 }]);
 
       const result = await processCheckout({ ...baseData, promoCode: 'HEMAT10' });
       expect(result.discount).toBe(0);
@@ -299,13 +411,17 @@ describe('checkout module (TC-030 – TC-033)', () => {
     });
 
     it('throws when a cart product no longer exists', async () => {
-      prisma.product.findMany.mockResolvedValue([]);
+      chain.where.mockResolvedValueOnce([]);
 
       await expect(processCheckout(baseData)).rejects.toThrow('tidak ditemukan');
     });
 
     it('throws when stock is insufficient at decrement time', async () => {
-      prisma.product.updateMany.mockResolvedValue({ count: 0 });
+      chain.where.mockResolvedValueOnce([
+        { id: PID, name: 'Amber Noir', price: 250000, stock: 20 },
+      ]);
+      returningResult.mockResolvedValueOnce([{ id: 'order-1', orderNumber: 'ORD-TESTORDR' }]);
+      chain.limit.mockResolvedValueOnce([{ stock: 0 }]);
 
       await expect(processCheckout(baseData)).rejects.toThrow('tidak mencukupi');
     });

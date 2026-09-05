@@ -1,4 +1,6 @@
-import prisma from '../../config/database';
+import { db } from '../../db';
+import { products, orders, orderItems, promoCodes, giftWrappings } from '../../db/schema';
+import { eq, and, gte, inArray, sql } from 'drizzle-orm';
 import { redis } from '../../config/redis';
 import { nanoid } from 'nanoid';
 import { AppError } from '../../lib/errors';
@@ -25,7 +27,6 @@ const SHIPPING_COSTS: Record<string, number> = {
 };
 
 export async function processCheckout(data: CheckoutData) {
-  // 1. Ambil cart dari Redis
   const raw = await redis.get(`cart:${data.userId}`);
   if (!raw) {
     throw new AppError('CHECKOUT_ERROR', 'Keranjang kosong', 400);
@@ -36,16 +37,18 @@ export async function processCheckout(data: CheckoutData) {
     throw new AppError('CHECKOUT_ERROR', 'Keranjang kosong', 400);
   }
 
-  // 2. Ambil detail produk
   const productIds = cartItems.map((i) => i.productId);
-  const products: { id: string; name: string; price: any; stock: number }[] = await prisma.product.findMany({
-    where: { id: { in: productIds }, status: 'ACTIVE' },
-    select: { id: true, name: true, price: true, stock: true },
-  });
+  const productList = await db.select({
+    id: products.id,
+    name: products.name,
+    price: products.price,
+    stock: products.stock,
+  })
+    .from(products)
+    .where(and(inArray(products.id, productIds), eq(products.status, 'ACTIVE')));
 
-  const productMap = new Map(products.map((p) => [p.id, p]));
+  const productMap = new Map(productList.map((p) => [p.id, p]));
 
-  // 3. Validasi produk exists
   for (const item of cartItems) {
     const product = productMap.get(item.productId);
     if (!product) {
@@ -53,10 +56,9 @@ export async function processCheckout(data: CheckoutData) {
     }
   }
 
-  // 4. Hitung subtotal
   let subtotal = 0;
   let totalGiftWrap = 0;
-  const orderItems: {
+  const orderItemsData: {
     productId: string;
     quantity: number;
     price: any;
@@ -72,7 +74,7 @@ export async function processCheckout(data: CheckoutData) {
     subtotal += itemTotal;
     totalGiftWrap += giftWrapPrice;
 
-    orderItems.push({
+    orderItemsData.push({
       productId: item.productId,
       quantity: item.quantity,
       price: product.price,
@@ -81,18 +83,17 @@ export async function processCheckout(data: CheckoutData) {
     });
   }
 
-  // 5. Hitung ongkir
   const shippingFee = SHIPPING_COSTS[data.shippingMethod] || SHIPPING_COSTS.standard;
 
-  // 6. Validasi promo code (tanpa increment - akan dilakukan di dalam transaction)
   let discount = 0;
   let promoCodeId = null;
   let promoRecord: any = null;
 
   if (data.promoCode) {
-    const promo = await prisma.promoCode.findUnique({
-      where: { code: data.promoCode.toUpperCase() },
-    });
+    const [promo] = await db.select()
+      .from(promoCodes)
+      .where(eq(promoCodes.code, data.promoCode.toUpperCase()))
+      .limit(1);
 
     const result = evaluatePromo(promo, subtotal, shippingFee);
     if (result.applicable && promo) {
@@ -103,81 +104,67 @@ export async function processCheckout(data: CheckoutData) {
   }
 
   const totalAmount = subtotal + shippingFee + totalGiftWrap - discount;
-
-  // 7. Generate order number
   const orderNumber = `ORD-${nanoid(8).toUpperCase()}`;
 
-  // 8. Create order dalam transaction (stock decrement + promo increment atomic)
-  const order = await prisma.$transaction(async (tx: any) => {
-    // Create order
-    const newOrder = await tx.order.create({
-      data: {
-        userId: data.userId,
-        orderNumber,
-        status: 'PENDING',
-        subtotal,
-        shippingFee,
-        discount,
-        totalAmount,
-        promoCodeId,
-        shippingAddress: data.shippingAddress,
-        notes: data.notes,
-        giftMessage: data.giftMessage,
-      },
-    });
+  const order = await db.transaction(async (tx) => {
+    const [newOrder] = await tx.insert(orders).values({
+      userId: data.userId,
+      orderNumber,
+      status: 'PENDING',
+      subtotal: subtotal.toString(),
+      shippingFee: shippingFee.toString(),
+      discount: discount.toString(),
+      totalAmount: totalAmount.toString(),
+      promoCodeId,
+      shippingAddress: data.shippingAddress,
+      notes: data.notes,
+      giftMessage: data.giftMessage,
+    }).returning();
 
-    // Create order items + kurangi stok secara atomik
-    for (const item of orderItems) {
-      await tx.orderItem.create({
-        data: {
-          orderId: newOrder.id,
-          productId: item.productId,
-          quantity: item.quantity,
-          price: item.price,
-          giftWrap: item.giftWrap,
-          giftWrapPrice: item.giftWrapPrice,
-        },
+    for (const item of orderItemsData) {
+      await tx.insert(orderItems).values({
+        orderId: newOrder.id,
+        productId: item.productId,
+        quantity: item.quantity,
+        price: item.price,
+        giftWrap: item.giftWrap,
+        giftWrapPrice: item.giftWrapPrice.toString(),
       });
 
-      // Conditional decrement - gagal jika stok tidak cukup
-      const stockResult = await tx.product.updateMany({
-        where: {
-          id: item.productId,
-          stock: { gte: item.quantity },
-        },
-        data: { stock: { decrement: item.quantity } },
-      });
+      // Check stock first
+      const [currentProduct] = await tx.select({ stock: products.stock })
+        .from(products)
+        .where(eq(products.id, item.productId))
+        .limit(1);
 
-      if (stockResult.count === 0) {
+      if (!currentProduct || currentProduct.stock < item.quantity) {
         throw new AppError('INSUFFICIENT_STOCK', `Stok produk ${item.productId} tidak mencukupi`, 400);
       }
+
+      await tx.update(products)
+        .set({ stock: sql`${products.stock} - ${item.quantity}` })
+        .where(eq(products.id, item.productId));
     }
 
-    // Increment promo usage di dalam transaction
     if (promoRecord) {
-      await tx.promoCode.update({
-        where: { id: promoRecord.id },
-        data: { usedCount: { increment: 1 } },
-      });
+      await tx.update(promoCodes)
+        .set({ usedCount: sql`${promoCodes.usedCount} + 1` })
+        .where(eq(promoCodes.id, promoRecord.id));
     }
 
-    // Create gift wrapping jika ada
-    const hasGiftWrap = orderItems.some((i: any) => i.giftWrap);
+    const hasGiftWrap = orderItemsData.some((i) => i.giftWrap);
     if (hasGiftWrap) {
-      await tx.giftWrapping.create({
-        data: {
-          orderId: newOrder.id,
-          wrappingType: 'standard',
-          price: totalGiftWrap,
-          message: data.giftMessage,
-        },
+      await tx.insert(giftWrappings).values({
+        orderId: newOrder.id,
+        wrappingType: 'standard',
+        price: totalGiftWrap.toString(),
+        message: data.giftMessage,
       });
     }
 
     return newOrder;
   });
 
-  // 9. Hapus cart
   await redis.del(`cart:${data.userId}`);
 
   return {

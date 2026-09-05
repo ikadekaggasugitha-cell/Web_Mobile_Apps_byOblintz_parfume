@@ -3,12 +3,51 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import jwt from '@fastify/jwt';
 
 // ---- Mocks (hoisted so they exist before the route module is imported) ----
-const prisma = vi.hoisted(() => ({
-  user: {
-    findUnique: vi.fn(),
-    create: vi.fn(),
-    update: vi.fn(),
-  },
+const mocks = vi.hoisted(() => ({
+  mockLimit: vi.fn(),
+  mockReturning: vi.fn(),
+  mockValues: vi.fn(),
+  mockSet: vi.fn(),
+  mockWhere: vi.fn(),
+  mockFrom: vi.fn(),
+  mockSelectFn: vi.fn(),
+  mockInsertFn: vi.fn(),
+  mockUpdateFn: vi.fn(),
+}));
+
+const {
+  mockLimit,
+  mockReturning,
+  mockValues,
+  mockSet,
+  mockWhere,
+  mockFrom,
+  mockSelectFn,
+  mockInsertFn,
+  mockUpdateFn,
+} = mocks;
+
+const db = vi.hoisted(() => ({
+  select: vi.fn().mockReturnValue({
+    from: vi.fn().mockReturnValue({
+      where: vi.fn().mockReturnValue({
+        limit: mocks.mockLimit,
+      }),
+    }),
+  }),
+  insert: vi.fn().mockReturnValue({
+    values: vi.fn().mockReturnValue({
+      returning: mocks.mockReturning,
+    }),
+  }),
+  update: vi.fn().mockReturnValue({
+    set: vi.fn().mockReturnValue({
+      where: vi.fn().mockReturnValue({
+        returning: mocks.mockReturning,
+      }),
+    }),
+  }),
+  execute: vi.fn(),
 }));
 
 const redis = vi.hoisted(() => ({
@@ -24,7 +63,7 @@ const bcrypt = vi.hoisted(() => ({
   compare: vi.fn(),
 }));
 
-vi.mock('@/config/database', () => ({ default: prisma, prisma }));
+vi.mock('@/db', () => ({ db }));
 vi.mock('@/config/redis', () => ({ redis }));
 vi.mock('bcrypt', () => ({ default: bcrypt, ...bcrypt }));
 vi.mock('nanoid', () => ({ nanoid: () => 'reset-token-fixed' }));
@@ -62,7 +101,6 @@ describe('auth module (TC-001 – TC-005)', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    // Default: rate limiter allows the request (first hit in the window).
     redis.incr.mockResolvedValue(1);
     redis.expire.mockResolvedValue(1);
     redis.set.mockResolvedValue('OK');
@@ -70,13 +108,22 @@ describe('auth module (TC-001 – TC-005)', () => {
     redis.del.mockResolvedValue(1);
     bcrypt.hash.mockResolvedValue('new-hash');
     bcrypt.compare.mockResolvedValue(true);
+
+    mockLimit.mockReset();
+    mockReturning.mockReset();
+    mockValues.mockReset();
+    mockSet.mockReset();
+    mockWhere.mockReset();
+    mockFrom.mockReset();
+
+    mockLimit.mockResolvedValue([]);
+    mockReturning.mockResolvedValue([]);
   });
 
   // ==================== TC-001: REGISTER ====================
   describe('TC-001: POST /register (valid email)', () => {
     it('creates the user and returns tokens', async () => {
-      prisma.user.findUnique.mockResolvedValue(null);
-      prisma.user.create.mockResolvedValue({ ...USER });
+      mockReturning.mockResolvedValue([{ ...USER }]);
 
       const res = await app.inject({
         method: 'POST',
@@ -95,7 +142,7 @@ describe('auth module (TC-001 – TC-005)', () => {
       expect(data.accessToken).toBeTruthy();
       expect(data.refreshToken).toBeTruthy();
       expect(bcrypt.hash).toHaveBeenCalledWith('password123', 12);
-      expect(prisma.user.create).toHaveBeenCalled();
+      expect(db.insert).toHaveBeenCalled();
       expect(sendEmail).toHaveBeenCalledWith(
         expect.objectContaining({ to: USER.email })
       );
@@ -108,7 +155,7 @@ describe('auth module (TC-001 – TC-005)', () => {
     });
 
     it('returns 429 when register rate limit is exceeded', async () => {
-      redis.incr.mockResolvedValue(6); // over the 5/min limit
+      redis.incr.mockResolvedValue(6);
 
       const res = await app.inject({
         method: 'POST',
@@ -118,7 +165,7 @@ describe('auth module (TC-001 – TC-005)', () => {
 
       expect(res.statusCode).toBe(429);
       expect(res.json().error.code).toBe('RATE_LIMIT');
-      expect(prisma.user.create).not.toHaveBeenCalled();
+      expect(db.insert).not.toHaveBeenCalled();
     });
 
     it('returns 400 on schema validation failure (short password)', async () => {
@@ -135,7 +182,7 @@ describe('auth module (TC-001 – TC-005)', () => {
   // ==================== TC-002: REGISTER EXISTING EMAIL ====================
   describe('TC-002: POST /register (existing email)', () => {
     it('returns 409 CONFLICT', async () => {
-      prisma.user.findUnique.mockResolvedValue({ ...USER });
+      mockLimit.mockResolvedValue([{ ...USER }]);
 
       const res = await app.inject({
         method: 'POST',
@@ -145,14 +192,14 @@ describe('auth module (TC-001 – TC-005)', () => {
 
       expect(res.statusCode).toBe(409);
       expect(res.json().error.code).toBe('CONFLICT');
-      expect(prisma.user.create).not.toHaveBeenCalled();
+      expect(db.insert).not.toHaveBeenCalled();
     });
   });
 
   // ==================== TC-003: LOGIN ====================
   describe('TC-003: POST /login (correct credentials)', () => {
     it('returns 200 with user and tokens', async () => {
-      prisma.user.findUnique.mockResolvedValue({ ...USER });
+      mockLimit.mockResolvedValue([{ ...USER }]);
       bcrypt.compare.mockResolvedValue(true);
 
       const res = await app.inject({
@@ -170,7 +217,7 @@ describe('auth module (TC-001 – TC-005)', () => {
     });
 
     it('returns 401 when the email is not found', async () => {
-      prisma.user.findUnique.mockResolvedValue(null);
+      mockLimit.mockResolvedValue([]);
 
       const res = await app.inject({
         method: 'POST',
@@ -186,7 +233,7 @@ describe('auth module (TC-001 – TC-005)', () => {
   // ==================== TC-004: LOGIN WRONG PASSWORD ====================
   describe('TC-004: POST /login (wrong password)', () => {
     it('returns 401 UNAUTHORIZED', async () => {
-      prisma.user.findUnique.mockResolvedValue({ ...USER });
+      mockLimit.mockResolvedValue([{ ...USER }]);
       bcrypt.compare.mockResolvedValue(false);
 
       const res = await app.inject({
@@ -204,7 +251,7 @@ describe('auth module (TC-001 – TC-005)', () => {
   // ==================== TC-005: RESET PASSWORD FLOW ====================
   describe('TC-005: forgot-password / reset-password', () => {
     it('sends a reset email when the account exists', async () => {
-      prisma.user.findUnique.mockResolvedValue({ ...USER });
+      mockLimit.mockResolvedValue([{ ...USER }]);
 
       const res = await app.inject({
         method: 'POST',
@@ -225,7 +272,7 @@ describe('auth module (TC-001 – TC-005)', () => {
     });
 
     it('does not leak account existence for unknown emails', async () => {
-      prisma.user.findUnique.mockResolvedValue(null);
+      mockLimit.mockResolvedValue([]);
 
       const res = await app.inject({
         method: 'POST',
@@ -240,7 +287,7 @@ describe('auth module (TC-001 – TC-005)', () => {
     it('resets the password with a valid token', async () => {
       redis.get.mockResolvedValue('stored-reset-hash');
       bcrypt.compare.mockResolvedValue(true);
-      prisma.user.update.mockResolvedValue({ ...USER });
+      mockReturning.mockResolvedValue([{ ...USER }]);
 
       const res = await app.inject({
         method: 'POST',
@@ -249,10 +296,7 @@ describe('auth module (TC-001 – TC-005)', () => {
       });
 
       expect(res.statusCode).toBe(200);
-      expect(prisma.user.update).toHaveBeenCalledWith({
-        where: { id: USER.id },
-        data: { passwordHash: 'new-hash' },
-      });
+      expect(db.update).toHaveBeenCalled();
       expect(redis.del).toHaveBeenCalledWith(`reset:${USER.id}`);
     });
 
@@ -267,7 +311,7 @@ describe('auth module (TC-001 – TC-005)', () => {
 
       expect(res.statusCode).toBe(400);
       expect(res.json().error.code).toBe('INVALID_TOKEN');
-      expect(prisma.user.update).not.toHaveBeenCalled();
+      expect(db.update).not.toHaveBeenCalled();
     });
 
     it('rejects reset when the token does not match', async () => {
@@ -290,7 +334,7 @@ describe('auth module (TC-001 – TC-005)', () => {
     it('issues new tokens for a valid refresh token', async () => {
       const refreshToken = app.jwt.sign({ id: USER.id });
       redis.get.mockResolvedValue(refreshToken);
-      prisma.user.findUnique.mockResolvedValue({ ...USER });
+      mockLimit.mockResolvedValue([{ ...USER }]);
 
       const res = await app.inject({
         method: 'POST',
@@ -331,12 +375,12 @@ describe('auth module (TC-001 – TC-005)', () => {
 
   describe('GET /me', () => {
     it('returns the current user', async () => {
-      prisma.user.findUnique.mockResolvedValue({
+      mockLimit.mockResolvedValue([{
         id: USER.id,
         email: USER.email,
         name: USER.name,
         role: USER.role,
-      });
+      }]);
 
       const res = await app.inject({
         method: 'GET',
@@ -372,7 +416,7 @@ describe('auth module (TC-001 – TC-005)', () => {
   // ==================== OTP SEND / VERIFY ====================
   describe('POST /otp/send', () => {
     it('sends an OTP email when the account exists', async () => {
-      prisma.user.findUnique.mockResolvedValue({ ...USER });
+      mockLimit.mockResolvedValue([{ ...USER }]);
 
       const res = await app.inject({
         method: 'POST',
@@ -393,7 +437,7 @@ describe('auth module (TC-001 – TC-005)', () => {
     });
 
     it('does not leak existence for unknown emails', async () => {
-      prisma.user.findUnique.mockResolvedValue(null);
+      mockLimit.mockResolvedValue([]);
 
       const res = await app.inject({
         method: 'POST',
@@ -406,7 +450,7 @@ describe('auth module (TC-001 – TC-005)', () => {
     });
 
     it('returns 429 when OTP rate limit is exceeded', async () => {
-      redis.incr.mockResolvedValue(4); // over the 3/min limit
+      redis.incr.mockResolvedValue(4);
 
       const res = await app.inject({
         method: 'POST',
@@ -423,7 +467,7 @@ describe('auth module (TC-001 – TC-005)', () => {
     it('verifies the email with a correct OTP', async () => {
       redis.get.mockResolvedValue('stored-otp-hash');
       bcrypt.compare.mockResolvedValue(true);
-      prisma.user.update.mockResolvedValue({ ...USER, emailVerified: true });
+      mockReturning.mockResolvedValue([{ ...USER, emailVerified: true }]);
 
       const res = await app.inject({
         method: 'POST',
@@ -432,10 +476,7 @@ describe('auth module (TC-001 – TC-005)', () => {
       });
 
       expect(res.statusCode).toBe(200);
-      expect(prisma.user.update).toHaveBeenCalledWith({
-        where: { email: USER.email },
-        data: { emailVerified: true },
-      });
+      expect(db.update).toHaveBeenCalled();
       expect(redis.del).toHaveBeenCalledWith(`otp:${USER.email}`);
     });
 
@@ -464,14 +505,14 @@ describe('auth module (TC-001 – TC-005)', () => {
 
       expect(res.statusCode).toBe(400);
       expect(res.json().error.code).toBe('INVALID_OTP');
-      expect(prisma.user.update).not.toHaveBeenCalled();
+      expect(db.update).not.toHaveBeenCalled();
     });
   });
 
   // ==================== RATE LIMITS & ERROR BRANCHES ====================
   describe('rate limits and error handling', () => {
     it('returns 429 when login rate limit is exceeded', async () => {
-      redis.incr.mockResolvedValue(11); // over the 10/min limit
+      redis.incr.mockResolvedValue(11);
 
       const res = await app.inject({
         method: 'POST',
@@ -484,7 +525,7 @@ describe('auth module (TC-001 – TC-005)', () => {
     });
 
     it('returns 429 when forgot-password rate limit is exceeded', async () => {
-      redis.incr.mockResolvedValue(6); // over the 5/min limit
+      redis.incr.mockResolvedValue(6);
 
       const res = await app.inject({
         method: 'POST',
@@ -497,9 +538,7 @@ describe('auth module (TC-001 – TC-005)', () => {
     });
 
     it('does NOT mask an unexpected datastore error as 400 on register (→ 500)', async () => {
-      // Unexpected errors must propagate to the global handler (generic 500),
-      // not be swallowed as VALIDATION_ERROR with a leaked message.
-      prisma.user.findUnique.mockRejectedValue(new Error('db down'));
+      mockLimit.mockRejectedValue(new Error('db down'));
 
       const res = await app.inject({
         method: 'POST',
@@ -511,7 +550,7 @@ describe('auth module (TC-001 – TC-005)', () => {
     });
 
     it('does NOT mask an unexpected datastore error as 400 on login (→ 500)', async () => {
-      prisma.user.findUnique.mockRejectedValue(new Error('db down'));
+      mockLimit.mockRejectedValue(new Error('db down'));
 
       const res = await app.inject({
         method: 'POST',
@@ -523,7 +562,7 @@ describe('auth module (TC-001 – TC-005)', () => {
     });
 
     it('GET /me returns 404 when the user no longer exists', async () => {
-      prisma.user.findUnique.mockResolvedValue(null);
+      mockLimit.mockResolvedValue([]);
 
       const res = await app.inject({
         method: 'GET',

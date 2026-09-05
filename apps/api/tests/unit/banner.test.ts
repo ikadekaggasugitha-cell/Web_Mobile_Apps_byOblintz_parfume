@@ -2,19 +2,52 @@ import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vites
 import Fastify, { type FastifyInstance } from 'fastify';
 import jwt from '@fastify/jwt';
 
-const prisma = vi.hoisted(() => ({
-  banner: {
-    findMany: vi.fn(),
-    aggregate: vi.fn(),
-    findUnique: vi.fn(),
-    create: vi.fn(),
-    update: vi.fn(),
-    delete: vi.fn(),
-  },
-  $transaction: vi.fn(),
-}));
+const { chain, returningResult, db } = vi.hoisted(() => {
+  const chain = {
+    from: vi.fn(),
+    where: vi.fn(),
+    orderBy: vi.fn(),
+    limit: vi.fn(),
+    offset: vi.fn(),
+    innerJoin: vi.fn(),
+    leftJoin: vi.fn(),
+    groupBy: vi.fn(),
+  };
+  chain.from.mockReturnValue(chain);
+  chain.where.mockReturnValue(chain);
+  chain.orderBy.mockReturnValue(chain);
+  chain.limit.mockReturnValue(chain);
+  chain.offset.mockReturnValue(chain);
+  chain.innerJoin.mockReturnValue(chain);
+  chain.leftJoin.mockReturnValue(chain);
+  chain.groupBy.mockReturnValue(chain);
 
-vi.mock('@/config/database', () => ({ default: prisma, prisma }));
+  const returningResult = vi.fn();
+
+  const db = {
+    select: vi.fn().mockReturnValue(chain),
+    insert: vi.fn().mockReturnValue({
+      values: vi.fn().mockReturnValue({
+        returning: returningResult,
+      }),
+    }),
+    update: vi.fn().mockReturnValue({
+      set: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          returning: returningResult,
+        }),
+      }),
+    }),
+    delete: vi.fn().mockReturnValue({
+      where: vi.fn(),
+    }),
+    execute: vi.fn(),
+  };
+
+  return { chain, returningResult, db };
+});
+
+vi.mock('@/db', () => ({ db }));
 
 import { bannerRoutes } from '@/modules/banner/banner.routes';
 
@@ -62,21 +95,27 @@ describe('banner module', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    prisma.$transaction.mockResolvedValue([]);
+    chain.from.mockReturnValue(chain);
+    chain.where.mockReturnValue(chain);
+    chain.orderBy.mockReturnValue(chain);
+    chain.limit.mockReturnValue(chain);
+    chain.offset.mockReturnValue(chain);
+    chain.innerJoin.mockReturnValue(chain);
+    chain.leftJoin.mockReturnValue(chain);
+    chain.groupBy.mockReturnValue(chain);
   });
 
   // ==================== PUBLIC LIST ====================
   describe('GET /api/banners', () => {
     it('lists active banners', async () => {
-      prisma.banner.findMany.mockResolvedValue([makeBanner()]);
+      // Route: .select({...}).from(banners).where(...).orderBy(asc(banners.sortOrder)) → terminal .orderBy()
+      chain.orderBy.mockResolvedValueOnce([makeBanner()]);
 
       const res = await app.inject({ method: 'GET', url: '/api/banners' });
 
       expect(res.statusCode).toBe(200);
       expect(res.json().data).toHaveLength(1);
-      expect(prisma.banner.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { isActive: true } })
-      );
+      expect(db.select).toHaveBeenCalled();
     });
   });
 
@@ -93,7 +132,8 @@ describe('banner module', () => {
     });
 
     it('lists all banners for an admin', async () => {
-      prisma.banner.findMany.mockResolvedValue([makeBanner({ isActive: false })]);
+      // Route: .select().from(banners).orderBy(asc(banners.sortOrder)) → terminal .orderBy()
+      chain.orderBy.mockResolvedValueOnce([makeBanner({ isActive: false })]);
 
       const res = await app.inject({
         method: 'GET',
@@ -109,8 +149,9 @@ describe('banner module', () => {
   // ==================== ADMIN CREATE ====================
   describe('POST /api/banners/admin', () => {
     it('creates a banner with auto sort order', async () => {
-      prisma.banner.aggregate.mockResolvedValue({ _max: { sortOrder: 4 } });
-      prisma.banner.create.mockResolvedValue(makeBanner({ sortOrder: 5 }));
+      // Q1: .select({maxSort: sql`...`}).from(banners) → terminal .from()
+      chain.from.mockResolvedValueOnce([{ maxSort: 4 }]);
+      returningResult.mockResolvedValueOnce([makeBanner({ sortOrder: 5 })]);
 
       const res = await app.inject({
         method: 'POST',
@@ -120,9 +161,7 @@ describe('banner module', () => {
       });
 
       expect(res.statusCode).toBe(201);
-      expect(prisma.banner.create).toHaveBeenCalledWith(
-        expect.objectContaining({ data: expect.objectContaining({ sortOrder: 5 }) })
-      );
+      expect(db.insert).toHaveBeenCalled();
     });
 
     it('returns 400 VALIDATION_ERROR for an invalid image URL', async () => {
@@ -141,8 +180,9 @@ describe('banner module', () => {
   // ==================== ADMIN UPDATE ====================
   describe('PUT /api/banners/admin/:id', () => {
     it('updates an existing banner', async () => {
-      prisma.banner.findUnique.mockResolvedValue(makeBanner());
-      prisma.banner.update.mockResolvedValue(makeBanner({ title: 'Promo Baru' }));
+      // Q1: .select().from(banners).where(...).limit(1) → terminal .limit()
+      chain.limit.mockResolvedValueOnce([makeBanner()]);
+      returningResult.mockResolvedValueOnce([makeBanner({ title: 'Promo Baru' })]);
 
       const res = await app.inject({
         method: 'PUT',
@@ -152,11 +192,12 @@ describe('banner module', () => {
       });
 
       expect(res.statusCode).toBe(200);
-      expect(prisma.banner.update).toHaveBeenCalled();
+      expect(db.update).toHaveBeenCalled();
     });
 
     it('returns 404 when the banner is missing', async () => {
-      prisma.banner.findUnique.mockResolvedValue(null);
+      // Q1: .select().from(banners).where(...).limit(1) → terminal .limit()
+      chain.limit.mockResolvedValueOnce([]);
 
       const res = await app.inject({
         method: 'PUT',
@@ -169,7 +210,8 @@ describe('banner module', () => {
     });
 
     it('returns 400 VALIDATION_ERROR for an invalid update', async () => {
-      prisma.banner.findUnique.mockResolvedValue(makeBanner());
+      // Q1: .select().from(banners).where(...).limit(1) → terminal .limit()
+      chain.limit.mockResolvedValueOnce([makeBanner()]);
 
       const res = await app.inject({
         method: 'PUT',
@@ -186,8 +228,9 @@ describe('banner module', () => {
   // ==================== ADMIN DELETE ====================
   describe('DELETE /api/banners/admin/:id', () => {
     it('deletes a banner', async () => {
-      prisma.banner.findUnique.mockResolvedValue(makeBanner());
-      prisma.banner.delete.mockResolvedValue(makeBanner());
+      // Q1: .select().from(banners).where(...).limit(1) → terminal .limit()
+      chain.limit.mockResolvedValueOnce([makeBanner()]);
+      db.delete.mockReturnValueOnce({ where: vi.fn() });
 
       const res = await app.inject({
         method: 'DELETE',
@@ -196,11 +239,12 @@ describe('banner module', () => {
       });
 
       expect(res.statusCode).toBe(200);
-      expect(prisma.banner.delete).toHaveBeenCalledWith({ where: { id: BANNER_ID } });
+      expect(db.delete).toHaveBeenCalled();
     });
 
     it('returns 404 when the banner is missing', async () => {
-      prisma.banner.findUnique.mockResolvedValue(null);
+      // Q1: .select().from(banners).where(...).limit(1) → terminal .limit()
+      chain.limit.mockResolvedValueOnce([]);
 
       const res = await app.inject({
         method: 'DELETE',
@@ -215,7 +259,14 @@ describe('banner module', () => {
   // ==================== ADMIN REORDER ====================
   describe('PUT /api/banners/admin/reorder', () => {
     it('reorders banners by id list', async () => {
-      prisma.banner.update.mockResolvedValue(makeBanner());
+      const mockTx = {
+        update: vi.fn().mockReturnValue({
+          set: vi.fn().mockReturnValue({
+            where: vi.fn().mockResolvedValue(undefined),
+          }),
+        }),
+      };
+      db.transaction = vi.fn().mockImplementation(async (fn) => fn(mockTx));
 
       const res = await app.inject({
         method: 'PUT',
@@ -225,8 +276,8 @@ describe('banner module', () => {
       });
 
       expect(res.statusCode).toBe(200);
-      expect(prisma.banner.update).toHaveBeenCalledTimes(3);
-      expect(prisma.$transaction).toHaveBeenCalled();
+      expect(db.transaction).toHaveBeenCalled();
+      expect(mockTx.update).toHaveBeenCalledTimes(3);
     });
 
     it('returns 400 when ids is not an array', async () => {

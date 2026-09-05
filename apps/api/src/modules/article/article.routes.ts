@@ -1,5 +1,7 @@
 import { FastifyInstance } from 'fastify';
-import prisma from '../../config/database';
+import { db } from '../../db';
+import { articles } from '../../db/schema/cms';
+import { sql, eq, and, or, desc, count, ilike } from 'drizzle-orm';
 import { handleRouteError } from '../../lib/errors';
 import { requireAuth, requireAdmin } from '../../middleware/auth';
 import { z } from 'zod';
@@ -26,30 +28,35 @@ export async function articleRoutes(app: FastifyInstance) {
     const limitNum = Math.min(50, Math.max(1, parseInt(limit)));
     const skip = (pageNum - 1) * limitNum;
 
-    const where = { status: 'PUBLISHED' as const };
+    const where = eq(articles.status, 'PUBLISHED');
 
-    const [articles, total] = await Promise.all([
-      prisma.article.findMany({
-        where,
-        orderBy: { createdAt: 'desc' },
-        skip,
-        take: limitNum,
-        select: {
-          id: true,
-          title: true,
-          slug: true,
-          excerpt: true,
-          imageUrl: true,
-          createdAt: true,
-        },
-      }),
-      prisma.article.count({ where }),
+    const [articlesResult, totalResult] = await Promise.all([
+      db
+        .select({
+          id: articles.id,
+          title: articles.title,
+          slug: articles.slug,
+          excerpt: articles.excerpt,
+          imageUrl: articles.imageUrl,
+          createdAt: articles.createdAt,
+        })
+        .from(articles)
+        .where(where)
+        .orderBy(desc(articles.createdAt))
+        .limit(limitNum)
+        .offset(skip),
+      db
+        .select({ count: count() })
+        .from(articles)
+        .where(where),
     ]);
+
+    const total = totalResult[0].count;
 
     return reply.status(200).send({
       success: true,
       data: {
-        articles,
+        articles: articlesResult,
         pagination: { page: pageNum, limit: limitNum, total, totalPages: Math.ceil(total / limitNum) },
       },
     });
@@ -59,9 +66,13 @@ export async function articleRoutes(app: FastifyInstance) {
   app.get('/:slug', async (request, reply) => {
     const { slug } = request.params as { slug: string };
 
-    const article = await prisma.article.findUnique({
-      where: { slug },
-    });
+    const result = await db
+      .select()
+      .from(articles)
+      .where(eq(articles.slug, slug))
+      .limit(1);
+
+    const article = result[0];
 
     if (!article || article.status !== 'PUBLISHED') {
       return reply.status(404).send({
@@ -88,28 +99,32 @@ export async function articleRoutes(app: FastifyInstance) {
     const limitNum = Math.min(100, Math.max(1, parseInt(limit)));
     const skip = (pageNum - 1) * limitNum;
 
-    const where: any = {};
-    if (status) where.status = status;
-    if (search) {
-      where.OR = [
-        { title: { contains: search, mode: 'insensitive' } },
-      ];
-    }
+    const conditions: any[] = [];
+    if (status) conditions.push(eq(articles.status, status));
+    if (search) conditions.push(ilike(articles.title, `%${search}%`));
 
-    const [articles, total] = await Promise.all([
-      prisma.article.findMany({
-        where,
-        orderBy: { createdAt: 'desc' },
-        skip,
-        take: limitNum,
-      }),
-      prisma.article.count({ where }),
+    const where = conditions.length > 0 ? and(...conditions) : undefined;
+
+    const [articlesResult, totalResult] = await Promise.all([
+      db
+        .select()
+        .from(articles)
+        .where(where)
+        .orderBy(desc(articles.createdAt))
+        .limit(limitNum)
+        .offset(skip),
+      db
+        .select({ count: count() })
+        .from(articles)
+        .where(where),
     ]);
+
+    const total = totalResult[0].count;
 
     return reply.status(200).send({
       success: true,
       data: {
-        articles,
+        articles: articlesResult,
         pagination: { page: pageNum, limit: limitNum, total, totalPages: Math.ceil(total / limitNum) },
       },
     });
@@ -127,16 +142,22 @@ export async function articleRoutes(app: FastifyInstance) {
         .replace(/[^\w ]+/g, '')
         .replace(/ +/g, '-');
 
-      const existing = await prisma.article.findUnique({ where: { slug } });
-      if (existing) {
+      const existing = await db
+        .select()
+        .from(articles)
+        .where(eq(articles.slug, slug))
+        .limit(1);
+
+      if (existing[0]) {
         return reply.status(409).send({
           success: false,
           error: { code: 'CONFLICT', message: 'Slug artikel sudah ada' },
         });
       }
 
-      const article = await prisma.article.create({
-        data: {
+      const result = await db
+        .insert(articles)
+        .values({
           title: input.title,
           slug,
           content: input.content,
@@ -144,10 +165,10 @@ export async function articleRoutes(app: FastifyInstance) {
           imageUrl: input.imageUrl,
           author: input.author || 'Admin',
           status: input.status,
-        },
-      });
+        })
+        .returning();
 
-      return reply.status(201).send({ success: true, data: article });
+      return reply.status(201).send({ success: true, data: result[0] });
     } catch (error) {
       return handleRouteError(error, reply);
     }
@@ -159,8 +180,13 @@ export async function articleRoutes(app: FastifyInstance) {
   }, async (request, reply) => {
     const { id } = request.params as { id: string };
 
-    const article = await prisma.article.findUnique({ where: { id } });
-    if (!article) {
+    const existing = await db
+      .select()
+      .from(articles)
+      .where(eq(articles.id, id))
+      .limit(1);
+
+    if (!existing[0]) {
       return reply.status(404).send({
         success: false,
         error: { code: 'NOT_FOUND', message: 'Artikel tidak ditemukan' },
@@ -170,18 +196,20 @@ export async function articleRoutes(app: FastifyInstance) {
     try {
       const input = articleSchema.partial().parse(request.body);
 
-      const updated = await prisma.article.update({
-        where: { id },
-        data: {
-          ...(input.title && { title: input.title }),
-          ...(input.content && { content: input.content }),
-          ...(input.excerpt !== undefined && { excerpt: input.excerpt }),
-          ...(input.imageUrl !== undefined && { imageUrl: input.imageUrl }),
-          ...(input.status && { status: input.status }),
-        },
-      });
+      const updateData: Record<string, any> = {};
+      if (input.title) updateData.title = input.title;
+      if (input.content) updateData.content = input.content;
+      if (input.excerpt !== undefined) updateData.excerpt = input.excerpt;
+      if (input.imageUrl !== undefined) updateData.imageUrl = input.imageUrl;
+      if (input.status) updateData.status = input.status;
 
-      return reply.status(200).send({ success: true, data: updated });
+      const result = await db
+        .update(articles)
+        .set(updateData)
+        .where(eq(articles.id, id))
+        .returning();
+
+      return reply.status(200).send({ success: true, data: result[0] });
     } catch (error) {
       return handleRouteError(error, reply);
     }
@@ -193,15 +221,20 @@ export async function articleRoutes(app: FastifyInstance) {
   }, async (request, reply) => {
     const { id } = request.params as { id: string };
 
-    const article = await prisma.article.findUnique({ where: { id } });
-    if (!article) {
+    const existing = await db
+      .select()
+      .from(articles)
+      .where(eq(articles.id, id))
+      .limit(1);
+
+    if (!existing[0]) {
       return reply.status(404).send({
         success: false,
         error: { code: 'NOT_FOUND', message: 'Artikel tidak ditemukan' },
       });
     }
 
-    await prisma.article.delete({ where: { id } });
+    await db.delete(articles).where(eq(articles.id, id));
 
     return reply.status(200).send({
       success: true,

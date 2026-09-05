@@ -4,7 +4,7 @@
  * to the user is exactly the discount applied when the order is created.
  */
 
-// Numeric fields are typed loosely so Prisma `Decimal` values (which stringify
+// Numeric fields are typed loosely so database `Decimal` values (which stringify
 // via toString) are accepted alongside plain numbers/strings.
 type Numeric = number | string | { toString(): string };
 

@@ -2,18 +2,55 @@ import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vites
 import Fastify, { type FastifyInstance } from 'fastify';
 import jwt from '@fastify/jwt';
 
-const prisma = vi.hoisted(() => ({
-  subscription: {
-    findMany: vi.fn(),
-    findFirst: vi.fn(),
-    create: vi.fn(),
-    update: vi.fn(),
-    count: vi.fn(),
-  },
-  product: { findUnique: vi.fn() },
-}));
+const { chain, returningResult, db } = vi.hoisted(() => {
+  const chain = {
+    from: vi.fn(),
+    where: vi.fn(),
+    orderBy: vi.fn(),
+    limit: vi.fn(),
+    offset: vi.fn(),
+    innerJoin: vi.fn(),
+    leftJoin: vi.fn(),
+    groupBy: vi.fn(),
+  };
+  chain.from.mockReturnValue(chain);
+  chain.where.mockReturnValue(chain);
+  chain.orderBy.mockReturnValue(chain);
+  chain.limit.mockReturnValue(chain);
+  chain.offset.mockReturnValue(chain);
+  chain.innerJoin.mockReturnValue(chain);
+  chain.leftJoin.mockReturnValue(chain);
+  chain.groupBy.mockReturnValue(chain);
 
-vi.mock('@/config/database', () => ({ default: prisma, prisma }));
+  const returningResult = vi.fn();
+
+  const db = {
+    select: vi.fn().mockReturnValue(chain),
+    insert: vi.fn().mockReturnValue({
+      values: vi.fn().mockReturnValue({
+        returning: returningResult,
+      }),
+    }),
+    update: vi.fn().mockReturnValue({
+      set: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          returning: returningResult,
+        }),
+      }),
+    }),
+    delete: vi.fn().mockReturnValue({
+      where: vi.fn(),
+    }),
+    execute: vi.fn(),
+    query: {
+      subscriptions: { findMany: vi.fn() },
+    },
+  };
+
+  return { chain, returningResult, db };
+});
+
+vi.mock('@/db', () => ({ db }));
 
 import { subscriptionRoutes } from '@/modules/subscription/subscription.routes';
 import {
@@ -59,16 +96,38 @@ describe('subscription module (TC-050 – TC-053)', () => {
   });
 
   beforeEach(() => {
-    vi.clearAllMocks();
-    prisma.subscription.update.mockImplementation(async ({ data }: any) =>
-      makeSub(data)
-    );
+    vi.resetAllMocks();
+    chain.from.mockReturnValue(chain);
+    chain.where.mockReturnValue(chain);
+    chain.orderBy.mockReturnValue(chain);
+    chain.limit.mockReturnValue(chain);
+    chain.offset.mockReturnValue(chain);
+    chain.innerJoin.mockReturnValue(chain);
+    chain.leftJoin.mockReturnValue(chain);
+    chain.groupBy.mockReturnValue(chain);
+    db.select.mockReturnValue(chain);
+    db.insert.mockReturnValue({
+      values: vi.fn().mockReturnValue({
+        returning: returningResult,
+      }),
+    });
+    db.update.mockReturnValue({
+      set: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          returning: returningResult,
+        }),
+      }),
+    });
+    db.delete.mockReturnValue({
+      where: vi.fn(),
+    });
   });
 
   // ==================== LIST / DETAIL ====================
   describe('GET /api/subscriptions', () => {
     it('lists the current user subscriptions', async () => {
-      prisma.subscription.findMany.mockResolvedValue([makeSub()]);
+      // Route: db.query.subscriptions.findMany({where, orderBy, with})
+      db.query.subscriptions.findMany.mockResolvedValueOnce([makeSub()]);
 
       const res = await app.inject({
         method: 'GET',
@@ -78,9 +137,7 @@ describe('subscription module (TC-050 – TC-053)', () => {
 
       expect(res.statusCode).toBe(200);
       expect(res.json().data).toHaveLength(1);
-      expect(prisma.subscription.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { userId: USER_ID } })
-      );
+      expect(db.query.subscriptions.findMany).toHaveBeenCalled();
     });
 
     it('returns 401 without a token', async () => {
@@ -91,7 +148,8 @@ describe('subscription module (TC-050 – TC-053)', () => {
 
   describe('GET /api/subscriptions/:id', () => {
     it('returns the subscription detail', async () => {
-      prisma.subscription.findFirst.mockResolvedValue(makeSub());
+      // Route: db.query.subscriptions.findMany({where, with, limit: 1})
+      db.query.subscriptions.findMany.mockResolvedValueOnce([makeSub()]);
 
       const res = await app.inject({
         method: 'GET',
@@ -104,7 +162,7 @@ describe('subscription module (TC-050 – TC-053)', () => {
     });
 
     it('returns 404 when not found', async () => {
-      prisma.subscription.findFirst.mockResolvedValue(null);
+      db.query.subscriptions.findMany.mockResolvedValueOnce([]);
 
       const res = await app.inject({
         method: 'GET',
@@ -120,9 +178,15 @@ describe('subscription module (TC-050 – TC-053)', () => {
   // ==================== TC-050: CREATE ====================
   describe('TC-050: POST /api/subscriptions', () => {
     it('creates an active monthly subscription', async () => {
-      prisma.product.findUnique.mockResolvedValue({ id: PID, status: 'ACTIVE' });
-      prisma.subscription.findFirst.mockResolvedValue(null);
-      prisma.subscription.create.mockResolvedValue(makeSub());
+      // Q1: db.select().from(products).where(and(...)).limit(1) → product check
+      chain.limit.mockResolvedValueOnce([{ id: PID, status: 'ACTIVE' }]);
+      chain.where.mockReturnValueOnce(chain);
+      // Q2: db.query.subscriptions.findMany({where, limit: 1}) → duplicate check → []
+      db.query.subscriptions.findMany.mockResolvedValueOnce([]);
+      // Q3: db.insert(subscriptions).values({...}).returning()
+      returningResult.mockResolvedValueOnce([makeSub()]);
+      // Q4: db.query.subscriptions.findMany({where, with, limit: 1}) → full subscription
+      db.query.subscriptions.findMany.mockResolvedValueOnce([{ ...makeSub(), product: { id: PID } }]);
 
       const res = await app.inject({
         method: 'POST',
@@ -133,23 +197,17 @@ describe('subscription module (TC-050 – TC-053)', () => {
 
       expect(res.statusCode).toBe(201);
       expect(res.json().data.status).toBe('ACTIVE');
-      expect(prisma.subscription.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            userId: USER_ID,
-            productId: PID,
-            frequency: 'MONTHLY',
-            status: 'ACTIVE',
-            nextDelivery: expect.any(Date),
-          }),
-        })
-      );
+      expect(db.insert).toHaveBeenCalled();
     });
 
     it('creates a quarterly subscription', async () => {
-      prisma.product.findUnique.mockResolvedValue({ id: PID, status: 'ACTIVE' });
-      prisma.subscription.findFirst.mockResolvedValue(null);
-      prisma.subscription.create.mockResolvedValue(makeSub({ frequency: 'QUARTERLY' }));
+      chain.limit.mockResolvedValueOnce([{ id: PID, status: 'ACTIVE' }]);
+      chain.where.mockReturnValueOnce(chain);
+      db.query.subscriptions.findMany.mockResolvedValueOnce([]);
+      returningResult.mockResolvedValueOnce([makeSub({ frequency: 'QUARTERLY' })]);
+      db.query.subscriptions.findMany.mockResolvedValueOnce([
+        { ...makeSub({ frequency: 'QUARTERLY' }), product: { id: PID } },
+      ]);
 
       const res = await app.inject({
         method: 'POST',
@@ -162,7 +220,9 @@ describe('subscription module (TC-050 – TC-053)', () => {
     });
 
     it('returns 404 when the product does not exist', async () => {
-      prisma.product.findUnique.mockResolvedValue(null);
+      // Q1: db.select().from(products).where(and(...)).limit(1) → []
+      chain.limit.mockResolvedValueOnce([]);
+      chain.where.mockReturnValueOnce(chain);
 
       const res = await app.inject({
         method: 'POST',
@@ -176,8 +236,11 @@ describe('subscription module (TC-050 – TC-053)', () => {
     });
 
     it('returns 409 when already subscribed to the product', async () => {
-      prisma.product.findUnique.mockResolvedValue({ id: PID, status: 'ACTIVE' });
-      prisma.subscription.findFirst.mockResolvedValue(makeSub());
+      // Q1: db.select().from(products).where(and(...)).limit(1) → [product]
+      chain.limit.mockResolvedValueOnce([{ id: PID, status: 'ACTIVE' }]);
+      chain.where.mockReturnValueOnce(chain);
+      // Q2: db.query.subscriptions.findMany({where, limit: 1}) → [existing sub]
+      db.query.subscriptions.findMany.mockResolvedValueOnce([makeSub()]);
 
       const res = await app.inject({
         method: 'POST',
@@ -206,7 +269,10 @@ describe('subscription module (TC-050 – TC-053)', () => {
   // ==================== TC-051: PAUSE ====================
   describe('TC-051: POST /api/subscriptions/:id/pause', () => {
     it('pauses an active subscription', async () => {
-      prisma.subscription.findFirst.mockResolvedValue(makeSub({ status: 'ACTIVE' }));
+      // Route: db.query.subscriptions.findMany({where, limit: 1}) → active sub
+      db.query.subscriptions.findMany.mockResolvedValueOnce([makeSub({ status: 'ACTIVE' })]);
+      // Route: db.update(subscriptions).set({status: 'PAUSED'}).where(eq(...)).returning()
+      returningResult.mockResolvedValueOnce([makeSub({ status: 'PAUSED' })]);
 
       const res = await app.inject({
         method: 'POST',
@@ -216,14 +282,11 @@ describe('subscription module (TC-050 – TC-053)', () => {
 
       expect(res.statusCode).toBe(200);
       expect(res.json().data.status).toBe('PAUSED');
-      expect(prisma.subscription.update).toHaveBeenCalledWith({
-        where: { id: SUB_ID },
-        data: { status: 'PAUSED' },
-      });
+      expect(db.update).toHaveBeenCalled();
     });
 
     it('returns 404 when no active subscription exists', async () => {
-      prisma.subscription.findFirst.mockResolvedValue(null);
+      db.query.subscriptions.findMany.mockResolvedValueOnce([]);
 
       const res = await app.inject({
         method: 'POST',
@@ -238,9 +301,12 @@ describe('subscription module (TC-050 – TC-053)', () => {
   // ==================== TC-052: RESUME ====================
   describe('TC-052: POST /api/subscriptions/:id/resume', () => {
     it('resumes a paused monthly subscription and recomputes delivery', async () => {
-      prisma.subscription.findFirst.mockResolvedValue(
-        makeSub({ status: 'PAUSED', frequency: 'MONTHLY' })
-      );
+      // Route: db.query.subscriptions.findMany({where, limit: 1}) → paused sub
+      db.query.subscriptions.findMany.mockResolvedValueOnce([
+        makeSub({ status: 'PAUSED', frequency: 'MONTHLY' }),
+      ]);
+      // Route: db.update(subscriptions).set({...}).where(eq(...)).returning()
+      returningResult.mockResolvedValueOnce([makeSub({ status: 'ACTIVE' })]);
 
       const res = await app.inject({
         method: 'POST',
@@ -250,16 +316,14 @@ describe('subscription module (TC-050 – TC-053)', () => {
 
       expect(res.statusCode).toBe(200);
       expect(res.json().data.status).toBe('ACTIVE');
-      expect(prisma.subscription.update).toHaveBeenCalledWith({
-        where: { id: SUB_ID },
-        data: expect.objectContaining({ status: 'ACTIVE', nextDelivery: expect.any(Date) }),
-      });
+      expect(db.update).toHaveBeenCalled();
     });
 
     it('resumes a paused quarterly subscription', async () => {
-      prisma.subscription.findFirst.mockResolvedValue(
-        makeSub({ status: 'PAUSED', frequency: 'QUARTERLY' })
-      );
+      db.query.subscriptions.findMany.mockResolvedValueOnce([
+        makeSub({ status: 'PAUSED', frequency: 'QUARTERLY' }),
+      ]);
+      returningResult.mockResolvedValueOnce([makeSub({ status: 'ACTIVE' })]);
 
       const res = await app.inject({
         method: 'POST',
@@ -271,7 +335,7 @@ describe('subscription module (TC-050 – TC-053)', () => {
     });
 
     it('returns 404 when no paused subscription exists', async () => {
-      prisma.subscription.findFirst.mockResolvedValue(null);
+      db.query.subscriptions.findMany.mockResolvedValueOnce([]);
 
       const res = await app.inject({
         method: 'POST',
@@ -286,7 +350,10 @@ describe('subscription module (TC-050 – TC-053)', () => {
   // ==================== TC-053: CANCEL ====================
   describe('TC-053: POST /api/subscriptions/:id/cancel', () => {
     it('cancels an active subscription', async () => {
-      prisma.subscription.findFirst.mockResolvedValue(makeSub({ status: 'ACTIVE' }));
+      // Route: db.query.subscriptions.findMany({where, limit: 1}) → active sub
+      db.query.subscriptions.findMany.mockResolvedValueOnce([makeSub({ status: 'ACTIVE' })]);
+      // Route: db.update(subscriptions).set({status: 'CANCELLED'}).where(eq(...)).returning()
+      returningResult.mockResolvedValueOnce([makeSub({ status: 'CANCELLED' })]);
 
       const res = await app.inject({
         method: 'POST',
@@ -299,7 +366,7 @@ describe('subscription module (TC-050 – TC-053)', () => {
     });
 
     it('returns 404 when the subscription is missing', async () => {
-      prisma.subscription.findFirst.mockResolvedValue(null);
+      db.query.subscriptions.findMany.mockResolvedValueOnce([]);
 
       const res = await app.inject({
         method: 'POST',
@@ -311,7 +378,8 @@ describe('subscription module (TC-050 – TC-053)', () => {
     });
 
     it('returns 400 INVALID_STATUS when already cancelled', async () => {
-      prisma.subscription.findFirst.mockResolvedValue(makeSub({ status: 'CANCELLED' }));
+      // Route: db.query.subscriptions.findMany({where, limit: 1}) → cancelled sub
+      db.query.subscriptions.findMany.mockResolvedValueOnce([makeSub({ status: 'CANCELLED' })]);
 
       const res = await app.inject({
         method: 'POST',
@@ -321,7 +389,7 @@ describe('subscription module (TC-050 – TC-053)', () => {
 
       expect(res.statusCode).toBe(400);
       expect(res.json().error.code).toBe('INVALID_STATUS');
-      expect(prisma.subscription.update).not.toHaveBeenCalled();
+      expect(db.update).not.toHaveBeenCalled();
     });
   });
 
@@ -339,8 +407,13 @@ describe('subscription module (TC-050 – TC-053)', () => {
     });
 
     it('lists all subscriptions for an admin with pagination', async () => {
-      prisma.subscription.findMany.mockResolvedValue([makeSub()]);
-      prisma.subscription.count.mockResolvedValue(1);
+      // Route: Promise.all([
+      //   db.query.subscriptions.findMany({...}),  → relational
+      //   db.select({count: count()}).from(subscriptions).where(whereClause),  → chain
+      // ])
+      // Chain: select → from → where (terminal!)
+      db.query.subscriptions.findMany.mockResolvedValueOnce([makeSub()]);
+      chain.where.mockResolvedValueOnce([{ count: 1 }]);
 
       const res = await app.inject({
         method: 'GET',

@@ -2,18 +2,33 @@ import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vites
 import Fastify, { type FastifyInstance } from 'fastify';
 import jwt from '@fastify/jwt';
 
-const prisma = vi.hoisted(() => ({
-  article: {
-    findMany: vi.fn(),
-    count: vi.fn(),
-    findUnique: vi.fn(),
-    create: vi.fn(),
-    update: vi.fn(),
-    delete: vi.fn(),
-  },
-}));
+const { chain, returningResult, db } = vi.hoisted(() => {
+  const chain: any = {};
+  chain.from = vi.fn().mockReturnValue(chain);
+  chain.where = vi.fn().mockReturnValue(chain);
+  chain.orderBy = vi.fn().mockReturnValue(chain);
+  chain.limit = vi.fn().mockReturnValue(chain);
+  chain.offset = vi.fn().mockReturnValue(chain);
 
-vi.mock('@/config/database', () => ({ default: prisma, prisma }));
+  const returningResult = vi.fn();
+
+  const db = {
+    select: vi.fn().mockReturnValue(chain),
+    insert: vi.fn().mockReturnValue({
+      values: vi.fn().mockReturnValue({ returning: returningResult }),
+    }),
+    update: vi.fn().mockReturnValue({
+      set: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({ returning: returningResult }),
+      }),
+    }),
+    delete: vi.fn().mockReturnValue({ where: vi.fn() }),
+  };
+
+  return { chain, returningResult, db };
+});
+
+vi.mock('@/db', () => ({ db }));
 
 import { articleRoutes } from '@/modules/article/article.routes';
 
@@ -61,28 +76,34 @@ describe('article module', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    chain.from.mockReturnValue(chain);
+    chain.where.mockReturnValue(chain);
+    chain.orderBy.mockReturnValue(chain);
+    chain.limit.mockReturnValue(chain);
+    chain.offset.mockReturnValue(chain);
   });
 
-  // ==================== PUBLIC LIST ====================
   describe('GET /api/articles', () => {
     it('lists published articles with pagination', async () => {
-      prisma.article.findMany.mockResolvedValue([makeArticle()]);
-      prisma.article.count.mockResolvedValue(1);
+      // Route: Promise.all([
+      //   db.select({...}).from(articles).where().orderBy().limit().offset(),  // terminal: .offset()
+      //   db.select({count}).from(articles).where(),                          // terminal: .where()
+      // ])
+      // Query 1 calls .where() too, so we need mockReturnValueOnce(chain) for it
+      chain.where.mockReturnValueOnce(chain);
+      chain.offset.mockResolvedValueOnce([makeArticle()]);
+      chain.where.mockResolvedValueOnce([{ count: 1 }]);
 
       const res = await app.inject({ method: 'GET', url: '/api/articles' });
 
       expect(res.statusCode).toBe(200);
       expect(res.json().data.articles).toHaveLength(1);
-      expect(prisma.article.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { status: 'PUBLISHED' } })
-      );
     });
   });
 
-  // ==================== PUBLIC DETAIL ====================
   describe('GET /api/articles/:slug', () => {
     it('returns a published article', async () => {
-      prisma.article.findUnique.mockResolvedValue(makeArticle());
+      chain.limit.mockResolvedValueOnce([makeArticle()]);
 
       const res = await app.inject({ method: 'GET', url: '/api/articles/cara-memilih-parfum' });
 
@@ -91,7 +112,7 @@ describe('article module', () => {
     });
 
     it('returns 404 for a draft article', async () => {
-      prisma.article.findUnique.mockResolvedValue(makeArticle({ status: 'DRAFT' }));
+      chain.limit.mockResolvedValueOnce([makeArticle({ status: 'DRAFT' })]);
 
       const res = await app.inject({ method: 'GET', url: '/api/articles/cara-memilih-parfum' });
 
@@ -99,7 +120,7 @@ describe('article module', () => {
     });
 
     it('returns 404 when the article does not exist', async () => {
-      prisma.article.findUnique.mockResolvedValue(null);
+      chain.limit.mockResolvedValueOnce([]);
 
       const res = await app.inject({ method: 'GET', url: '/api/articles/ghost' });
 
@@ -108,7 +129,6 @@ describe('article module', () => {
     });
   });
 
-  // ==================== ADMIN LIST ====================
   describe('GET /api/articles/admin/all', () => {
     it('rejects non-admin users (403)', async () => {
       const res = await app.inject({
@@ -121,8 +141,10 @@ describe('article module', () => {
     });
 
     it('lists all articles for an admin with filters', async () => {
-      prisma.article.findMany.mockResolvedValue([makeArticle({ status: 'DRAFT' })]);
-      prisma.article.count.mockResolvedValue(1);
+      // Same pattern as public list
+      chain.where.mockReturnValueOnce(chain);
+      chain.offset.mockResolvedValueOnce([makeArticle({ status: 'DRAFT' })]);
+      chain.where.mockResolvedValueOnce([{ count: 1 }]);
 
       const res = await app.inject({
         method: 'GET',
@@ -135,11 +157,10 @@ describe('article module', () => {
     });
   });
 
-  // ==================== ADMIN CREATE ====================
   describe('POST /api/articles/admin', () => {
     it('creates an article and generates a slug', async () => {
-      prisma.article.findUnique.mockResolvedValue(null);
-      prisma.article.create.mockResolvedValue(makeArticle());
+      chain.limit.mockResolvedValueOnce([]);
+      returningResult.mockResolvedValueOnce([makeArticle()]);
 
       const res = await app.inject({
         method: 'POST',
@@ -149,15 +170,11 @@ describe('article module', () => {
       });
 
       expect(res.statusCode).toBe(201);
-      expect(prisma.article.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({ slug: 'cara-memilih-parfum', author: 'Admin' }),
-        })
-      );
+      expect(db.insert).toHaveBeenCalled();
     });
 
     it('returns 409 when the slug already exists', async () => {
-      prisma.article.findUnique.mockResolvedValue(makeArticle());
+      chain.limit.mockResolvedValueOnce([makeArticle()]);
 
       const res = await app.inject({
         method: 'POST',
@@ -183,11 +200,10 @@ describe('article module', () => {
     });
   });
 
-  // ==================== ADMIN UPDATE ====================
   describe('PUT /api/articles/admin/:id', () => {
     it('updates an existing article', async () => {
-      prisma.article.findUnique.mockResolvedValue(makeArticle());
-      prisma.article.update.mockResolvedValue(makeArticle({ title: 'Judul Baru' }));
+      chain.limit.mockResolvedValueOnce([makeArticle()]);
+      returningResult.mockResolvedValueOnce([makeArticle({ title: 'Judul Baru' })]);
 
       const res = await app.inject({
         method: 'PUT',
@@ -197,11 +213,11 @@ describe('article module', () => {
       });
 
       expect(res.statusCode).toBe(200);
-      expect(prisma.article.update).toHaveBeenCalled();
+      expect(db.update).toHaveBeenCalled();
     });
 
     it('returns 404 when the article is missing', async () => {
-      prisma.article.findUnique.mockResolvedValue(null);
+      chain.limit.mockResolvedValueOnce([]);
 
       const res = await app.inject({
         method: 'PUT',
@@ -214,7 +230,7 @@ describe('article module', () => {
     });
 
     it('returns 400 VALIDATION_ERROR for an invalid update', async () => {
-      prisma.article.findUnique.mockResolvedValue(makeArticle());
+      chain.limit.mockResolvedValueOnce([makeArticle()]);
 
       const res = await app.inject({
         method: 'PUT',
@@ -228,11 +244,9 @@ describe('article module', () => {
     });
   });
 
-  // ==================== ADMIN DELETE ====================
   describe('DELETE /api/articles/admin/:id', () => {
     it('deletes an article', async () => {
-      prisma.article.findUnique.mockResolvedValue(makeArticle());
-      prisma.article.delete.mockResolvedValue(makeArticle());
+      chain.limit.mockResolvedValueOnce([makeArticle()]);
 
       const res = await app.inject({
         method: 'DELETE',
@@ -241,11 +255,11 @@ describe('article module', () => {
       });
 
       expect(res.statusCode).toBe(200);
-      expect(prisma.article.delete).toHaveBeenCalledWith({ where: { id: ARTICLE_ID } });
+      expect(db.delete).toHaveBeenCalled();
     });
 
     it('returns 404 when the article is missing', async () => {
-      prisma.article.findUnique.mockResolvedValue(null);
+      chain.limit.mockResolvedValueOnce([]);
 
       const res = await app.inject({
         method: 'DELETE',

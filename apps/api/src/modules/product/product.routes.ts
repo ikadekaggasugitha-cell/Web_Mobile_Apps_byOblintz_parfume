@@ -1,6 +1,8 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import prisma from '../../config/database';
+import { eq, and, or, desc, asc, count, ilike, gte, lte, sql, inArray, ne } from 'drizzle-orm';
+import { db } from '../../db';
+import { products, categories, reviews, orderItems, users } from '../../db/schema';
 import { requireAuth, requireAdmin } from '../../middleware/auth';
 import { handleRouteError } from '../../lib/errors';
 
@@ -52,63 +54,120 @@ export async function productRoutes(app: FastifyInstance) {
     const limitNum = Math.min(50, Math.max(1, parseInt(limit)));
     const skip = (pageNum - 1) * limitNum;
 
-    const where: any = { status: 'ACTIVE' };
+    const conditions = [eq(products.status, 'ACTIVE')];
 
     if (category) {
-      where.category = { slug: category };
+      conditions.push(eq(categories.slug, category));
     }
 
     if (search) {
-      where.OR = [
-        { name: { contains: search, mode: 'insensitive' } },
-        { description: { contains: search, mode: 'insensitive' } },
-        { sku: { contains: search, mode: 'insensitive' } },
-      ];
+      conditions.push(
+        or(
+          ilike(products.name, `%${search}%`),
+          ilike(products.description, `%${search}%`),
+          ilike(products.sku, `%${search}%`),
+        )!
+      );
     }
 
-    if (minPrice || maxPrice) {
-      where.price = {};
-      if (minPrice) where.price.gte = parseFloat(minPrice);
-      if (maxPrice) where.price.lte = parseFloat(maxPrice);
+    if (minPrice) {
+      conditions.push(gte(products.price, minPrice));
+    }
+    if (maxPrice) {
+      conditions.push(lte(products.price, maxPrice));
     }
 
     if (occasion) {
-      where.occasions = { has: occasion };
+      conditions.push(sql`${products.occasions} @> ARRAY[${occasion}]::text[]`);
     }
 
-    const orderBy: any = (() => {
+    const orderByClause = (() => {
       switch (sort) {
-        case 'price_asc': return { price: 'asc' as const };
-        case 'price_desc': return { price: 'desc' as const };
-        case 'popular': return { reviews: { _count: 'desc' as const } };
-        case 'name': return { name: 'asc' as const };
-        default: return { createdAt: 'desc' as const };
+        case 'price_asc': return asc(products.price);
+        case 'price_desc': return desc(products.price);
+        case 'name': return asc(products.name);
+        default: return desc(products.createdAt);
       }
     })();
 
-    const [products, total] = await Promise.all([
-      prisma.product.findMany({
-        where,
-        orderBy,
-        skip,
-        take: limitNum,
-        include: {
-          category: true,
-          _count: { select: { reviews: true } },
-        },
-      }),
-      prisma.product.count({ where }),
+    const [productsList, [{ total }]] = await Promise.all([
+      db
+        .select({
+          id: products.id,
+          name: products.name,
+          slug: products.slug,
+          description: products.description,
+          price: products.price,
+          comparePrice: products.comparePrice,
+          stock: products.stock,
+          sku: products.sku,
+          weight: products.weight,
+          categoryId: products.categoryId,
+          notes: products.notes,
+          occasions: products.occasions,
+          status: products.status,
+          images: products.images,
+          metaTitle: products.metaTitle,
+          metaDesc: products.metaDesc,
+          createdAt: products.createdAt,
+          updatedAt: products.updatedAt,
+          category: {
+            id: categories.id,
+            name: categories.name,
+            slug: categories.slug,
+            description: categories.description,
+            image: categories.image,
+            parentId: categories.parentId,
+            sortOrder: categories.sortOrder,
+            createdAt: categories.createdAt,
+          },
+        })
+        .from(products)
+        .leftJoin(categories, eq(products.categoryId, categories.id))
+        .where(and(...conditions))
+        .orderBy(orderByClause)
+        .limit(limitNum)
+        .offset(skip),
+      db
+        .select({ total: count() })
+        .from(products)
+        .leftJoin(categories, eq(products.categoryId, categories.id))
+        .where(and(...conditions)),
     ]);
+
+    const productIds = productsList.map((p) => p.id);
+    const reviewCounts = productIds.length
+      ? await db
+          .select({ productId: reviews.productId, count: count() })
+          .from(reviews)
+          .groupBy(reviews.productId)
+      : [];
+
+    const reviewCountMap = new Map<string, number>();
+    for (const row of reviewCounts) {
+      reviewCountMap.set(row.productId, Number(row.count));
+    }
+
+    const enrichedProducts = productsList.map((p) => ({
+      ...p,
+      _count: { reviews: reviewCountMap.get(p.id) || 0 },
+    }));
+
+    if (sort === 'popular') {
+      enrichedProducts.sort(
+        (a, b) => (b._count.reviews || 0) - (a._count.reviews || 0)
+      );
+    }
 
     return reply.status(200).send({
       success: true,
       data: {
-        products,
+        products: enrichedProducts,
         pagination: {
           page: pageNum,
           limit: limitNum,
-          total,
-          totalPages: Math.ceil(total / limitNum),
+          total: Number(total),
+          totalPages: Math.ceil(Number(total) / limitNum),
         },
       },
     });
@@ -133,39 +192,87 @@ export async function productRoutes(app: FastifyInstance) {
     const limitNum = Math.min(50, Math.max(1, parseInt(limit)));
     const skip = (pageNum - 1) * limitNum;
 
-    const where = {
-      status: 'ACTIVE' as const,
-      OR: [
-        { name: { contains: q, mode: 'insensitive' as const } },
-        { description: { contains: q, mode: 'insensitive' as const } },
-        { sku: { contains: q, mode: 'insensitive' as const } },
-      ],
-    };
+    const searchConditions = [
+      eq(products.status, 'ACTIVE'),
+      or(
+        ilike(products.name, `%${q}%`),
+        ilike(products.description, `%${q}%`),
+        ilike(products.sku, `%${q}%`),
+      )!,
+    ];
 
-    const [products, total] = await Promise.all([
-      prisma.product.findMany({
-        where,
-        orderBy: { createdAt: 'desc' as const },
-        skip,
-        take: limitNum,
-        include: {
-          category: true,
-          _count: { select: { reviews: true } },
-        },
-      }),
-      prisma.product.count({ where }),
+    const [productsList, [{ total }]] = await Promise.all([
+      db
+        .select({
+          id: products.id,
+          name: products.name,
+          slug: products.slug,
+          description: products.description,
+          price: products.price,
+          comparePrice: products.comparePrice,
+          stock: products.stock,
+          sku: products.sku,
+          weight: products.weight,
+          categoryId: products.categoryId,
+          notes: products.notes,
+          occasions: products.occasions,
+          status: products.status,
+          images: products.images,
+          metaTitle: products.metaTitle,
+          metaDesc: products.metaDesc,
+          createdAt: products.createdAt,
+          updatedAt: products.updatedAt,
+          category: {
+            id: categories.id,
+            name: categories.name,
+            slug: categories.slug,
+            description: categories.description,
+            image: categories.image,
+            parentId: categories.parentId,
+            sortOrder: categories.sortOrder,
+            createdAt: categories.createdAt,
+          },
+        })
+        .from(products)
+        .leftJoin(categories, eq(products.categoryId, categories.id))
+        .where(and(...searchConditions))
+        .orderBy(desc(products.createdAt))
+        .limit(limitNum)
+        .offset(skip),
+      db
+        .select({ total: count() })
+        .from(products)
+        .where(and(...searchConditions)),
     ]);
+
+    const productIds = productsList.map((p) => p.id);
+    const reviewCounts = productIds.length
+      ? await db
+          .select({ productId: reviews.productId, count: count() })
+          .from(reviews)
+          .groupBy(reviews.productId)
+      : [];
+
+    const reviewCountMap = new Map<string, number>();
+    for (const row of reviewCounts) {
+      reviewCountMap.set(row.productId, Number(row.count));
+    }
+
+    const enrichedProducts = productsList.map((p) => ({
+      ...p,
+      _count: { reviews: reviewCountMap.get(p.id) || 0 },
+    }));
 
     return reply.status(200).send({
       success: true,
       data: {
         query: q,
-        products,
+        products: enrichedProducts,
         pagination: {
           page: pageNum,
           limit: limitNum,
-          total,
-          totalPages: Math.ceil(total / limitNum),
+          total: Number(total),
+          totalPages: Math.ceil(Number(total) / limitNum),
         },
       },
     });
@@ -183,13 +290,36 @@ export async function productRoutes(app: FastifyInstance) {
     const reviewLimitNum = Math.min(50, Math.max(1, parseInt(reviewLimit)));
     const reviewSkip = (reviewPageNum - 1) * reviewLimitNum;
 
-    const product = await prisma.product.findUnique({
-      where: { slug },
-      include: {
-        category: { select: { id: true, name: true, slug: true } },
-        _count: { select: { reviews: true } },
-      },
-    });
+    const [product] = await db
+      .select({
+        id: products.id,
+        name: products.name,
+        slug: products.slug,
+        description: products.description,
+        price: products.price,
+        comparePrice: products.comparePrice,
+        stock: products.stock,
+        sku: products.sku,
+        weight: products.weight,
+        categoryId: products.categoryId,
+        notes: products.notes,
+        occasions: products.occasions,
+        status: products.status,
+        images: products.images,
+        metaTitle: products.metaTitle,
+        metaDesc: products.metaDesc,
+        createdAt: products.createdAt,
+        updatedAt: products.updatedAt,
+        category: {
+          id: categories.id,
+          name: categories.name,
+          slug: categories.slug,
+        },
+      })
+      .from(products)
+      .leftJoin(categories, eq(products.categoryId, categories.id))
+      .where(eq(products.slug, slug))
+      .limit(1);
 
     if (!product) {
       return reply.status(404).send({
@@ -198,40 +328,54 @@ export async function productRoutes(app: FastifyInstance) {
       });
     }
 
-    // Fetch reviews separately with pagination
-    const [reviews, reviewTotal] = await Promise.all([
-      prisma.review.findMany({
-        where: { productId: product.id, status: 'APPROVED' },
-        orderBy: { createdAt: 'desc' },
-        skip: reviewSkip,
-        take: reviewLimitNum,
-        include: {
-          user: { select: { id: true, name: true, avatar: true } },
-        },
-      }),
-      prisma.review.count({
-        where: { productId: product.id, status: 'APPROVED' },
-      }),
+    const [productReviews, [{ total: reviewTotal }], [stats]] = await Promise.all([
+      db
+        .select({
+          id: reviews.id,
+          userId: reviews.userId,
+          productId: reviews.productId,
+          orderId: reviews.orderId,
+          rating: reviews.rating,
+          comment: reviews.comment,
+          images: reviews.images,
+          status: reviews.status,
+          createdAt: reviews.createdAt,
+          user: {
+            id: users.id,
+            name: users.name,
+            avatar: users.avatar,
+          },
+        })
+        .from(reviews)
+        .innerJoin(users, eq(reviews.userId, users.id))
+        .where(and(eq(reviews.productId, product.id), eq(reviews.status, 'APPROVED')))
+        .orderBy(desc(reviews.createdAt))
+        .limit(reviewLimitNum)
+        .offset(reviewSkip),
+      db
+        .select({ total: count() })
+        .from(reviews)
+        .where(and(eq(reviews.productId, product.id), eq(reviews.status, 'APPROVED'))),
+      db
+        .select({
+          avgRating: sql<number>`COALESCE(AVG(${reviews.rating}), 0)`,
+          totalReviews: count(),
+        })
+        .from(reviews)
+        .where(and(eq(reviews.productId, product.id), eq(reviews.status, 'APPROVED'))),
     ]);
-
-    // Hitung rata-rata rating
-    const stats = await prisma.review.aggregate({
-      where: { productId: product.id, status: 'APPROVED' },
-      _avg: { rating: true },
-      _count: { rating: true },
-    });
 
     return reply.status(200).send({
       success: true,
       data: {
         ...product,
-        avgRating: stats._avg.rating ? Math.round(stats._avg.rating * 10) / 10 : 0,
-        reviews,
+        avgRating: stats ? Math.round(Number(stats.avgRating) * 10) / 10 : 0,
+        reviews: productReviews,
         reviewPagination: {
           page: reviewPageNum,
           limit: reviewLimitNum,
-          total: reviewTotal,
-          totalPages: Math.ceil(reviewTotal / reviewLimitNum),
+          total: Number(reviewTotal),
+          totalPages: Math.ceil(Number(reviewTotal) / reviewLimitNum),
         },
       },
     });
@@ -241,10 +385,15 @@ export async function productRoutes(app: FastifyInstance) {
   app.get('/:slug/related', async (request, reply) => {
     const { slug } = request.params as { slug: string };
 
-    const product = await prisma.product.findUnique({
-      where: { slug },
-      select: { categoryId: true, notes: true, occasions: true },
-    });
+    const [product] = await db
+      .select({
+        categoryId: products.categoryId,
+        notes: products.notes,
+        occasions: products.occasions,
+      })
+      .from(products)
+      .where(eq(products.slug, slug))
+      .limit(1);
 
     if (!product) {
       return reply.status(404).send({
@@ -253,26 +402,70 @@ export async function productRoutes(app: FastifyInstance) {
       });
     }
 
-    // Cari produk sejenis berdasarkan category + notes overlap
-    const related = await prisma.product.findMany({
-      where: {
-        status: 'ACTIVE',
-        NOT: { slug },
-        OR: [
-          { categoryId: product.categoryId },
-        ],
-      },
-      take: 5,
-      include: {
-        category: true,
-        _count: { select: { reviews: true } },
-      },
-      orderBy: { createdAt: 'desc' as const },
-    });
+    const related = await db
+      .select({
+        id: products.id,
+        name: products.name,
+        slug: products.slug,
+        description: products.description,
+        price: products.price,
+        comparePrice: products.comparePrice,
+        stock: products.stock,
+        sku: products.sku,
+        weight: products.weight,
+        categoryId: products.categoryId,
+        notes: products.notes,
+        occasions: products.occasions,
+        status: products.status,
+        images: products.images,
+        metaTitle: products.metaTitle,
+        metaDesc: products.metaDesc,
+        createdAt: products.createdAt,
+        updatedAt: products.updatedAt,
+        category: {
+          id: categories.id,
+          name: categories.name,
+          slug: categories.slug,
+          description: categories.description,
+          image: categories.image,
+          parentId: categories.parentId,
+          sortOrder: categories.sortOrder,
+          createdAt: categories.createdAt,
+        },
+      })
+      .from(products)
+      .leftJoin(categories, eq(products.categoryId, categories.id))
+      .where(
+        and(
+          eq(products.status, 'ACTIVE'),
+          ne(products.slug, slug),
+          product.categoryId ? eq(products.categoryId, product.categoryId) : sql`true`,
+        )
+      )
+      .orderBy(desc(products.createdAt))
+      .limit(5);
+
+    const relatedIds = related.map((p) => p.id);
+    const relatedReviewCounts = relatedIds.length
+      ? await db
+          .select({ productId: reviews.productId, count: count() })
+          .from(reviews)
+          .groupBy(reviews.productId)
+      : [];
+
+    const relatedReviewCountMap = new Map<string, number>();
+    for (const row of relatedReviewCounts) {
+      relatedReviewCountMap.set(row.productId, Number(row.count));
+    }
+
+    const enrichedRelated = related.map((p) => ({
+      ...p,
+      _count: { reviews: relatedReviewCountMap.get(p.id) || 0 },
+    }));
 
     return reply.status(200).send({
       success: true,
-      data: related,
+      data: enrichedRelated,
     });
   });
 
@@ -282,10 +475,41 @@ export async function productRoutes(app: FastifyInstance) {
   }, async (request, reply) => {
     const { id } = request.params as { id: string };
 
-    const product = await prisma.product.findUnique({
-      where: { id },
-      include: { category: true },
-    });
+    const [product] = await db
+      .select({
+        id: products.id,
+        name: products.name,
+        slug: products.slug,
+        description: products.description,
+        price: products.price,
+        comparePrice: products.comparePrice,
+        stock: products.stock,
+        sku: products.sku,
+        weight: products.weight,
+        categoryId: products.categoryId,
+        notes: products.notes,
+        occasions: products.occasions,
+        status: products.status,
+        images: products.images,
+        metaTitle: products.metaTitle,
+        metaDesc: products.metaDesc,
+        createdAt: products.createdAt,
+        updatedAt: products.updatedAt,
+        category: {
+          id: categories.id,
+          name: categories.name,
+          slug: categories.slug,
+          description: categories.description,
+          image: categories.image,
+          parentId: categories.parentId,
+          sortOrder: categories.sortOrder,
+          createdAt: categories.createdAt,
+        },
+      })
+      .from(products)
+      .leftJoin(categories, eq(products.categoryId, categories.id))
+      .where(eq(products.id, id))
+      .limit(1);
 
     if (!product) {
       return reply.status(404).send({
@@ -319,40 +543,112 @@ export async function productRoutes(app: FastifyInstance) {
     const limitNum = Math.min(100, Math.max(1, parseInt(limit)));
     const skip = (pageNum - 1) * limitNum;
 
-    const where: any = {};
+    const conditions: any[] = [];
 
-    if (status) where.status = status;
-    if (category) where.category = { slug: category };
+    if (status) {
+      conditions.push(eq(products.status, status as any));
+    }
+    if (category) {
+      conditions.push(eq(categories.slug, category));
+    }
     if (search) {
-      where.OR = [
-        { name: { contains: search, mode: 'insensitive' } },
-        { sku: { contains: search, mode: 'insensitive' } },
-      ];
+      conditions.push(
+        or(
+          ilike(products.name, `%${search}%`),
+          ilike(products.sku, `%${search}%`),
+        )!
+      );
     }
 
-    const [products, total] = await Promise.all([
-      prisma.product.findMany({
-        where,
-        orderBy: { createdAt: 'desc' },
-        skip,
-        take: limitNum,
-        include: {
-          category: true,
-          _count: { select: { reviews: true, orderItems: true } },
-        },
-      }),
-      prisma.product.count({ where }),
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+    const [productsList, [{ total }]] = await Promise.all([
+      db
+        .select({
+          id: products.id,
+          name: products.name,
+          slug: products.slug,
+          description: products.description,
+          price: products.price,
+          comparePrice: products.comparePrice,
+          stock: products.stock,
+          sku: products.sku,
+          weight: products.weight,
+          categoryId: products.categoryId,
+          notes: products.notes,
+          occasions: products.occasions,
+          status: products.status,
+          images: products.images,
+          metaTitle: products.metaTitle,
+          metaDesc: products.metaDesc,
+          createdAt: products.createdAt,
+          updatedAt: products.updatedAt,
+          category: {
+            id: categories.id,
+            name: categories.name,
+            slug: categories.slug,
+            description: categories.description,
+            image: categories.image,
+            parentId: categories.parentId,
+            sortOrder: categories.sortOrder,
+            createdAt: categories.createdAt,
+          },
+        })
+        .from(products)
+        .leftJoin(categories, eq(products.categoryId, categories.id))
+        .where(whereClause)
+        .orderBy(desc(products.createdAt))
+        .limit(limitNum)
+        .offset(skip),
+      db
+        .select({ total: count() })
+        .from(products)
+        .leftJoin(categories, eq(products.categoryId, categories.id))
+        .where(whereClause),
     ]);
+
+    const productIds = productsList.map((p) => p.id);
+    const reviewCounts = productIds.length
+      ? await db
+          .select({ productId: reviews.productId, count: count() })
+          .from(reviews)
+          .groupBy(reviews.productId)
+      : [];
+
+    const orderItemCounts = productIds.length
+      ? await db
+          .select({ productId: orderItems.productId, count: count() })
+          .from(orderItems)
+          .groupBy(orderItems.productId)
+      : [];
+
+    const reviewCountMap = new Map<string, number>();
+    for (const row of reviewCounts) {
+      reviewCountMap.set(row.productId, Number(row.count));
+    }
+
+    const orderItemCountMap = new Map<string, number>();
+    for (const row of orderItemCounts) {
+      orderItemCountMap.set(row.productId, Number(row.count));
+    }
+
+    const enrichedProducts = productsList.map((p) => ({
+      ...p,
+      _count: {
+        reviews: reviewCountMap.get(p.id) || 0,
+        orderItems: orderItemCountMap.get(p.id) || 0,
+      },
+    }));
 
     return reply.status(200).send({
       success: true,
       data: {
-        products,
+        products: enrichedProducts,
         pagination: {
           page: pageNum,
           limit: limitNum,
-          total,
-          totalPages: Math.ceil(total / limitNum),
+          total: Number(total),
+          totalPages: Math.ceil(Number(total) / limitNum),
         },
       },
     });
@@ -365,14 +661,17 @@ export async function productRoutes(app: FastifyInstance) {
     try {
       const input = productCreateSchema.parse(request.body);
 
-      // Generate slug dari name
       const slug = input.name
         .toLowerCase()
         .replace(/[^\w ]+/g, '')
         .replace(/ +/g, '-');
 
-      // Cek slug unik agar tidak melempar error unique constraint dari Prisma
-      const existing = await prisma.product.findUnique({ where: { slug } });
+      const [existing] = await db
+        .select()
+        .from(products)
+        .where(eq(products.slug, slug))
+        .limit(1);
+
       if (existing) {
         return reply.status(409).send({
           success: false,
@@ -380,16 +679,17 @@ export async function productRoutes(app: FastifyInstance) {
         });
       }
 
-      const product = await prisma.product.create({
-        data: {
+      const [createdProduct] = await db
+        .insert(products)
+        .values({
           name: input.name,
           slug,
           description: input.description,
-          price: input.price,
-          comparePrice: input.comparePrice,
+          price: String(input.price),
+          comparePrice: input.comparePrice ? String(input.comparePrice) : null,
           stock: input.stock ?? 0,
           sku: input.sku,
-          weight: input.weight,
+          weight: input.weight ? String(input.weight) : null,
           categoryId: input.categoryId,
           notes: input.notes,
           occasions: input.occasions ?? [],
@@ -397,11 +697,21 @@ export async function productRoutes(app: FastifyInstance) {
           images: input.images ?? [],
           metaTitle: input.metaTitle,
           metaDesc: input.metaDesc,
-        },
-        include: { category: true },
-      });
+        })
+        .returning();
 
-      return reply.status(201).send({ success: true, data: product });
+      const [category] = createdProduct.categoryId
+        ? await db
+            .select()
+            .from(categories)
+            .where(eq(categories.id, createdProduct.categoryId))
+            .limit(1)
+        : [null];
+
+      return reply.status(201).send({
+        success: true,
+        data: { ...createdProduct, category },
+      });
     } catch (error) {
       return handleRouteError(error, reply);
     }
@@ -413,7 +723,12 @@ export async function productRoutes(app: FastifyInstance) {
   }, async (request, reply) => {
     const { id } = request.params as { id: string };
 
-    const existing = await prisma.product.findUnique({ where: { id } });
+    const [existing] = await db
+      .select()
+      .from(products)
+      .where(eq(products.id, id))
+      .limit(1);
+
     if (!existing) {
       return reply.status(404).send({
         success: false,
@@ -424,28 +739,40 @@ export async function productRoutes(app: FastifyInstance) {
     try {
       const input = productUpdateSchema.parse(request.body);
 
-      const product = await prisma.product.update({
-        where: { id },
-        data: {
-          ...(input.name !== undefined && { name: input.name }),
-          ...(input.description !== undefined && { description: input.description }),
-          ...(input.price !== undefined && { price: input.price }),
-          ...(input.comparePrice !== undefined && { comparePrice: input.comparePrice }),
-          ...(input.stock !== undefined && { stock: input.stock }),
-          ...(input.sku !== undefined && { sku: input.sku }),
-          ...(input.weight !== undefined && { weight: input.weight }),
-          ...(input.categoryId !== undefined && { categoryId: input.categoryId }),
-          ...(input.notes !== undefined && { notes: input.notes }),
-          ...(input.occasions !== undefined && { occasions: input.occasions }),
-          ...(input.status !== undefined && { status: input.status }),
-          ...(input.images !== undefined && { images: input.images }),
-          ...(input.metaTitle !== undefined && { metaTitle: input.metaTitle }),
-          ...(input.metaDesc !== undefined && { metaDesc: input.metaDesc }),
-        },
-        include: { category: true },
-      });
+      const updateData: Record<string, any> = {};
+      if (input.name !== undefined) updateData.name = input.name;
+      if (input.description !== undefined) updateData.description = input.description;
+      if (input.price !== undefined) updateData.price = String(input.price);
+      if (input.comparePrice !== undefined) updateData.comparePrice = input.comparePrice ? String(input.comparePrice) : null;
+      if (input.stock !== undefined) updateData.stock = input.stock;
+      if (input.sku !== undefined) updateData.sku = input.sku;
+      if (input.weight !== undefined) updateData.weight = input.weight ? String(input.weight) : null;
+      if (input.categoryId !== undefined) updateData.categoryId = input.categoryId;
+      if (input.notes !== undefined) updateData.notes = input.notes;
+      if (input.occasions !== undefined) updateData.occasions = input.occasions;
+      if (input.status !== undefined) updateData.status = input.status;
+      if (input.images !== undefined) updateData.images = input.images;
+      if (input.metaTitle !== undefined) updateData.metaTitle = input.metaTitle;
+      if (input.metaDesc !== undefined) updateData.metaDesc = input.metaDesc;
 
-      return reply.status(200).send({ success: true, data: product });
+      const [updated] = await db
+        .update(products)
+        .set(updateData)
+        .where(eq(products.id, id))
+        .returning();
+
+      const [category] = updated.categoryId
+        ? await db
+            .select()
+            .from(categories)
+            .where(eq(categories.id, updated.categoryId))
+            .limit(1)
+        : [null];
+
+      return reply.status(200).send({
+        success: true,
+        data: { ...updated, category },
+      });
     } catch (error) {
       return handleRouteError(error, reply);
     }
@@ -457,7 +784,12 @@ export async function productRoutes(app: FastifyInstance) {
   }, async (request, reply) => {
     const { id } = request.params as { id: string };
 
-    const existing = await prisma.product.findUnique({ where: { id } });
+    const [existing] = await db
+      .select()
+      .from(products)
+      .where(eq(products.id, id))
+      .limit(1);
+
     if (!existing) {
       return reply.status(404).send({
         success: false,
@@ -465,11 +797,10 @@ export async function productRoutes(app: FastifyInstance) {
       });
     }
 
-    // Soft delete - ubah status ke ARCHIVED
-    await prisma.product.update({
-      where: { id },
-      data: { status: 'ARCHIVED' },
-    });
+    await db
+      .update(products)
+      .set({ status: 'ARCHIVED' })
+      .where(eq(products.id, id));
 
     return reply.status(200).send({
       success: true,

@@ -1,9 +1,9 @@
-import { PrismaClient } from '@prisma/client';
+import type { Database } from '../db';
 import Redis from 'ioredis';
 
 declare module 'fastify' {
   interface FastifyInstance {
-    prisma: PrismaClient;
+    db: Database;
     redis: Redis;
   }
 }

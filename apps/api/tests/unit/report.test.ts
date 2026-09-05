@@ -2,15 +2,53 @@ import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vites
 import Fastify, { type FastifyInstance } from 'fastify';
 import jwt from '@fastify/jwt';
 
-const prisma = vi.hoisted(() => ({
-  order: { count: vi.fn(), aggregate: vi.fn(), findMany: vi.fn() },
-  product: { count: vi.fn(), findMany: vi.fn() },
-  user: { count: vi.fn() },
-  subscription: { count: vi.fn() },
-  orderItem: { groupBy: vi.fn() },
-}));
+const { chain, returningResult, db } = vi.hoisted(() => {
+  const chain = {
+    from: vi.fn(),
+    where: vi.fn(),
+    orderBy: vi.fn(),
+    limit: vi.fn(),
+    offset: vi.fn(),
+    innerJoin: vi.fn(),
+    leftJoin: vi.fn(),
+    groupBy: vi.fn(),
+  };
+  chain.from.mockReturnValue(chain);
+  chain.where.mockReturnValue(chain);
+  chain.orderBy.mockReturnValue(chain);
+  chain.limit.mockReturnValue(chain);
+  chain.offset.mockReturnValue(chain);
+  chain.innerJoin.mockReturnValue(chain);
+  chain.leftJoin.mockReturnValue(chain);
+  chain.groupBy.mockReturnValue(chain);
 
-vi.mock('@/config/database', () => ({ default: prisma, prisma }));
+  const returningResult = vi.fn();
+
+  const db = {
+    select: vi.fn().mockReturnValue(chain),
+    insert: vi.fn().mockReturnValue({
+      values: vi.fn().mockReturnValue({
+        returning: returningResult,
+      }),
+    }),
+    update: vi.fn().mockReturnValue({
+      set: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          returning: returningResult,
+        }),
+      }),
+    }),
+    delete: vi.fn().mockReturnValue({
+      where: vi.fn(),
+    }),
+    execute: vi.fn(),
+    transaction: vi.fn(),
+  };
+
+  return { chain, returningResult, db };
+});
+
+vi.mock('@/db', () => ({ db }));
 
 import { reportRoutes } from '@/modules/report/report.routes';
 
@@ -36,10 +74,33 @@ describe('report module', () => {
   });
 
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
+    db.select.mockReturnValue(chain);
+    db.insert.mockReturnValue({
+      values: vi.fn().mockReturnValue({
+        returning: returningResult,
+      }),
+    });
+    db.update.mockReturnValue({
+      set: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          returning: returningResult,
+        }),
+      }),
+    });
+    db.delete.mockReturnValue({
+      where: vi.fn(),
+    });
+    chain.from.mockReturnValue(chain);
+    chain.where.mockReturnValue(chain);
+    chain.orderBy.mockReturnValue(chain);
+    chain.limit.mockReturnValue(chain);
+    chain.offset.mockReturnValue(chain);
+    chain.innerJoin.mockReturnValue(chain);
+    chain.leftJoin.mockReturnValue(chain);
+    chain.groupBy.mockReturnValue(chain);
   });
 
-  // ==================== DASHBOARD ====================
   describe('GET /api/reports/dashboard', () => {
     it('rejects non-admin users (403)', async () => {
       const res = await app.inject({
@@ -52,16 +113,32 @@ describe('report module', () => {
     });
 
     it('returns aggregated dashboard stats', async () => {
-      prisma.order.count.mockResolvedValue(100);
-      prisma.product.count.mockResolvedValue(50);
-      prisma.user.count.mockResolvedValue(200);
-      prisma.subscription.count.mockResolvedValue(10);
-      prisma.order.aggregate.mockResolvedValue({ _sum: { totalAmount: 5000000 } });
-      prisma.order.findMany.mockResolvedValue([{ id: 'o1', user: { name: 'Budi' }, items: [] }]);
-      prisma.orderItem.groupBy.mockResolvedValue([
-        { productId: 'p1', _count: { id: 5 }, _sum: { quantity: 12 } },
-      ]);
-      prisma.product.findMany.mockResolvedValue([{ id: 'p1', name: 'Amber', price: 250000 }]);
+      // Promise.all([
+      //   Q1: .select({count:count()}).from(orders) -> terminal .from()
+      //   Q2: .select({count:count()}).from(orders).where(gte(...)) -> terminal .where()
+      //   Q3: .select({count:count()}).from(products).where(eq(...)) -> terminal .where()
+      //   Q4: .select({count:count()}).from(users) -> terminal .from()
+      //   Q5: .select({count:count()}).from(subscriptions).where(eq(...)) -> terminal .where()
+      //   Q6: .select({total:...}).from(orders).where(and(...)) -> terminal .where()
+      //   Q7: .select({...}).from(orders).innerJoin(...).orderBy(...).limit(10) -> terminal .limit()
+      //   Q8: .select({...}).from(orderItems).groupBy(...).orderBy(...).limit(5) -> terminal .limit()
+      // ])
+      // chain.from call order: Q1(terminal), Q2(non-term), Q3(non-term), Q4(terminal), Q5-Q8(non-term)
+      chain.from
+        .mockResolvedValueOnce([{ count: 100 }])  // call 1: Q1 terminal
+        .mockReturnValueOnce(chain)                // call 2: Q2 non-terminal
+        .mockReturnValueOnce(chain)                // call 3: Q3 non-terminal
+        .mockResolvedValueOnce([{ count: 200 }]);  // call 4: Q4 terminal
+      chain.where
+        .mockResolvedValueOnce([{ count: 50 }])    // Q2
+        .mockResolvedValueOnce([{ count: 200 }])   // Q3
+        .mockResolvedValueOnce([{ count: 10 }])    // Q5
+        .mockResolvedValueOnce([{ total: 5000000 }]); // Q6
+      chain.limit
+        .mockResolvedValueOnce([{ id: 'o1', orderNumber: 'ORD-001', status: 'PAID', totalAmount: 250000, createdAt: '2026-08-10', user: { name: 'Budi', email: 'budi@example.com' } }]) // Q7
+        .mockResolvedValueOnce([{ productId: 'p1', count: 5, totalQty: 12 }]); // Q8
+      // Q9 (sequential): .select({...}).from(products).where(inArray(...)) -> terminal .where()
+      chain.where.mockResolvedValueOnce([{ id: 'p1', name: 'Amber', price: 250000 }]);
 
       const res = await app.inject({
         method: 'GET',
@@ -78,14 +155,22 @@ describe('report module', () => {
     });
 
     it('defaults revenue to 0 when there are no paid orders', async () => {
-      prisma.order.count.mockResolvedValue(0);
-      prisma.product.count.mockResolvedValue(0);
-      prisma.user.count.mockResolvedValue(0);
-      prisma.subscription.count.mockResolvedValue(0);
-      prisma.order.aggregate.mockResolvedValue({ _sum: { totalAmount: null } });
-      prisma.order.findMany.mockResolvedValue([]);
-      prisma.orderItem.groupBy.mockResolvedValue([]);
-      prisma.product.findMany.mockResolvedValue([]);
+      // chain.from call order: Q1(terminal), Q2(non-term), Q3(non-term), Q4(terminal), Q5-Q8(non-term)
+      chain.from
+        .mockResolvedValueOnce([{ count: 0 }])   // call 1: Q1 terminal
+        .mockReturnValueOnce(chain)               // call 2: Q2 non-terminal
+        .mockReturnValueOnce(chain)               // call 3: Q3 non-terminal
+        .mockResolvedValueOnce([{ count: 0 }]);   // call 4: Q4 terminal
+      chain.where
+        .mockResolvedValueOnce([{ count: 0 }])    // Q2
+        .mockResolvedValueOnce([{ count: 0 }])    // Q3
+        .mockResolvedValueOnce([{ count: 0 }])    // Q5
+        .mockResolvedValueOnce([{ total: null }]); // Q6
+      chain.limit
+        .mockResolvedValueOnce([]) // Q7
+        .mockResolvedValueOnce([]); // Q8
+      // Q9 (sequential): terminal .where()
+      chain.where.mockResolvedValueOnce([]);
 
       const res = await app.inject({
         method: 'GET',
@@ -98,10 +183,10 @@ describe('report module', () => {
     });
   });
 
-  // ==================== SALES ====================
   describe('GET /api/reports/sales', () => {
     it('groups sales by day', async () => {
-      prisma.order.findMany.mockResolvedValue([
+      // Route: .select({...}).from(orders).where(and(...)).orderBy(sql`...`) -> terminal .orderBy()
+      chain.orderBy.mockResolvedValueOnce([
         { createdAt: '2026-08-10T10:00:00.000Z', totalAmount: 100000, status: 'PAID' },
         { createdAt: '2026-08-10T12:00:00.000Z', totalAmount: 200000, status: 'DELIVERED' },
         { createdAt: '2026-08-11T09:00:00.000Z', totalAmount: 150000, status: 'PAID' },
@@ -118,11 +203,12 @@ describe('report module', () => {
       expect(data.summary.totalOrders).toBe(3);
       expect(data.summary.totalRevenue).toBe(450000);
       expect(data.summary.avgOrderValue).toBe(150000);
-      expect(data.chart).toHaveLength(2); // two distinct days
+      expect(data.chart).toHaveLength(2);
     });
 
     it('supports weekly grouping', async () => {
-      prisma.order.findMany.mockResolvedValue([
+      // Route: terminal .orderBy()
+      chain.orderBy.mockResolvedValueOnce([
         { createdAt: '2026-08-10T10:00:00.000Z', totalAmount: 100000, status: 'PAID' },
       ]);
 
@@ -137,7 +223,8 @@ describe('report module', () => {
     });
 
     it('supports monthly grouping and handles an empty range', async () => {
-      prisma.order.findMany.mockResolvedValue([]);
+      // Route: terminal .orderBy()
+      chain.orderBy.mockResolvedValueOnce([]);
 
       const res = await app.inject({
         method: 'GET',
@@ -153,14 +240,25 @@ describe('report module', () => {
     });
   });
 
-  // ==================== PRODUCTS ====================
   describe('GET /api/reports/products', () => {
     it('returns product stats and top sellers', async () => {
-      prisma.product.count.mockResolvedValue(50);
-      prisma.orderItem.groupBy.mockResolvedValue([
-        { productId: 'p1', _sum: { quantity: 30 }, _count: { id: 10 } },
-      ]);
-      prisma.product.findMany.mockResolvedValue([{ id: 'p1', name: 'Amber', price: 250000, stock: 8 }]);
+      // Promise.all([
+      //   Q1: .select({count:count()}).from(products) -> terminal .from()
+      //   Q2: .select({count:count()}).from(products).where(eq(products.status, 'ACTIVE')) -> terminal .where()
+      //   Q3: .select({count:count()}).from(products).where(and(...lte...gt...)) -> terminal .where()
+      //   Q4: .select({count:count()}).from(products).where(eq(products.stock, 0)) -> terminal .where()
+      //   Q5: .select({...}).from(orderItems).groupBy(...).orderBy(...).limit(10) -> terminal .limit()
+      // ])
+      // Order of terminal calls: from, where, where, where, limit
+      chain.from
+        .mockResolvedValueOnce([{ count: 50 }]); // Q1
+      chain.where
+        .mockResolvedValueOnce([{ count: 50 }])  // Q2
+        .mockResolvedValueOnce([{ count: 0 }])    // Q3
+        .mockResolvedValueOnce([{ count: 0 }]);   // Q4
+      chain.limit.mockResolvedValueOnce([{ productId: 'p1', totalQty: 30, count: 10 }]); // Q5
+      // Q6 (sequential): .select({...}).from(products).where(inArray(...)) -> terminal .where()
+      chain.where.mockResolvedValueOnce([{ id: 'p1', name: 'Amber', price: 250000, stock: 8 }]);
 
       const res = await app.inject({
         method: 'GET',
@@ -175,10 +273,22 @@ describe('report module', () => {
     });
   });
 
-  // ==================== USERS ====================
   describe('GET /api/reports/users', () => {
     it('returns user stats with a conversion rate', async () => {
-      prisma.user.count.mockResolvedValue(100);
+      // Promise.all([
+      //   Q1: .select({count:count()}).from(users) -> terminal .from()
+      //   Q2: .select({count:count()}).from(users).where(gte(...)) -> terminal .where()
+      // ])
+      // chain.from: call 1 (Q1 terminal), call 2 (Q2 non-terminal), call 3 (Q3 terminal), call 4 (Q4 non-terminal)
+      chain.from
+        .mockResolvedValueOnce([{ count: 100 }])  // call 1: Q1 terminal
+        .mockReturnValueOnce(chain);               // call 2: Q2 non-terminal
+      chain.where
+        .mockResolvedValueOnce([{ count: 100 }]); // Q2
+      // Q3 (sequential): .select({count: sql`count(distinct ...)`}).from(orders) -> terminal .from()
+      chain.from.mockResolvedValueOnce([{ count: 100 }]); // call 3: Q3 terminal
+      // Q4 (sequential): .select({count: sql`count(distinct ...)`}).from(subscriptions).where(eq(...)) -> terminal .where()
+      chain.where.mockResolvedValueOnce([{ count: 100 }]);
 
       const res = await app.inject({
         method: 'GET',
@@ -189,12 +299,19 @@ describe('report module', () => {
       expect(res.statusCode).toBe(200);
       const data = res.json().data;
       expect(data.totalUsers).toBe(100);
-      // all four counts mocked to 100 → usersWithOrders/totalUsers = 100%
       expect(data.conversionRate).toBe(100);
     });
 
     it('reports a 0% conversion rate when there are no users', async () => {
-      prisma.user.count.mockResolvedValue(0);
+      chain.from
+        .mockResolvedValueOnce([{ count: 0 }])  // call 1: Q1 terminal
+        .mockReturnValueOnce(chain);             // call 2: Q2 non-terminal
+      chain.where
+        .mockResolvedValueOnce([{ count: 0 }]); // Q2
+      // Q3: terminal .from()
+      chain.from.mockResolvedValueOnce([{ count: 0 }]); // call 3: Q3 terminal
+      // Q4: terminal .where()
+      chain.where.mockResolvedValueOnce([{ count: 0 }]);
 
       const res = await app.inject({
         method: 'GET',

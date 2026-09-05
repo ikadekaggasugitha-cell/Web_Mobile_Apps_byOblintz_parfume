@@ -6,7 +6,7 @@ import { productRoutes } from '../../../src/modules/product/product.routes';
 import { categoryRoutes } from '../../../src/modules/category/category.routes';
 
 /**
- * Build a real Fastify app wired to the real Prisma client (pointed at the test
+ * Build a real Fastify app wired to the real Drizzle client (pointed at the test
  * DB via setup.ts). Only registers routes that have no external-service coupling
  * (no Redis/email/Midtrans) so integration tests exercise genuine DB behaviour.
  */
@@ -32,10 +32,10 @@ export async function buildApp(): Promise<FastifyInstance> {
       });
     }
     const code = (error as { code?: string }).code;
-    if (code === 'P2002') {
+    if (code === '23505') {
       return reply.status(409).send({ success: false, error: { code: 'CONFLICT', message: 'Data sudah ada' } });
     }
-    if (code === 'P2025') {
+    if (code === '23503') {
       return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Data tidak ditemukan' } });
     }
     return reply.status(error.statusCode || 500).send({

@@ -1,6 +1,8 @@
 import { FastifyInstance } from 'fastify';
 import crypto from 'crypto';
-import prisma from '../../config/database';
+import { db } from '../../db';
+import { orders, orderItems, transactions } from '../../db/schema';
+import { eq, and, desc, count } from 'drizzle-orm';
 import { requireAuth, requireAdmin } from '../../middleware/auth';
 import { config } from '../../config';
 import {
@@ -9,16 +11,15 @@ import {
 } from '../../services/midtrans';
 
 export async function paymentRoutes(app: FastifyInstance) {
-  // ==================== CREATE QRIS PAYMENT ====================
   app.post('/create', {
     preHandler: [requireAuth],
   }, async (request, reply) => {
     const { orderId } = request.body as { orderId: string };
 
-    const order = await prisma.order.findFirst({
-      where: { id: orderId, userId: request.userId },
-      include: { items: true },
-    });
+    const [order] = await db.select()
+      .from(orders)
+      .where(and(eq(orders.id, orderId), eq(orders.userId, request.userId!)))
+      .limit(1);
 
     if (!order) {
       return reply.status(404).send({
@@ -34,6 +35,8 @@ export async function paymentRoutes(app: FastifyInstance) {
       });
     }
 
+    const items = await db.select().from(orderItems).where(eq(orderItems.orderId, order.id));
+
     const paymentId = `PAY-${order.orderNumber}-${Date.now()}`;
     const shipping = order.shippingAddress as any;
 
@@ -41,7 +44,6 @@ export async function paymentRoutes(app: FastifyInstance) {
       let qrCode = '';
 
       if (config.midtrans.serverKey) {
-        // Real Midtrans integration
         const midtransResponse = await createMidtransQRIS(
           order.orderNumber,
           Number(order.totalAmount),
@@ -52,38 +54,31 @@ export async function paymentRoutes(app: FastifyInstance) {
           }
         );
 
-        // Extract QR code from actions
         const qrAction = midtransResponse.actions?.find(
           (a) => a.method === 'GET_QR'
         );
         qrCode = qrAction?.url || midtransResponse.qr_code || midtransResponse.payment_code || '';
 
-        // If no QR from actions, generate from snap URL
         if (!qrCode && midtransResponse.redirect_url) {
           qrCode = midtransResponse.redirect_url;
         }
       } else {
-        // Mock QR code for sandbox/dev without keys
         qrCode = `00020101021226${order.orderNumber}52040000530336054${Number(order.totalAmount)}5802ID5925OBLINTZ PERFUME6006JAKARTA6304`;
       }
 
-      // Save transaction record + update order status secara atomik
-      const transaction = await prisma.$transaction(async (tx: any) => {
-        const newTransaction = await tx.transaction.create({
-          data: {
-            orderId: order.id,
-            paymentId,
-            amount: order.totalAmount,
-            method: 'QRIS',
-            status: 'PENDING',
-            qrCode,
-          },
-        });
+      const transaction = await db.transaction(async (tx) => {
+        const [newTransaction] = await tx.insert(transactions).values({
+          orderId: order.id,
+          paymentId,
+          amount: order.totalAmount,
+          method: 'QRIS',
+          status: 'PENDING',
+          qrCode,
+        }).returning();
 
-        await tx.order.update({
-          where: { id: order.id },
-          data: { status: 'WAITING_PAYMENT' },
-        });
+        await tx.update(orders)
+          .set({ status: 'WAITING_PAYMENT' })
+          .where(eq(orders.id, order.id));
 
         return newTransaction;
       });
@@ -111,18 +106,26 @@ export async function paymentRoutes(app: FastifyInstance) {
     }
   });
 
-  // ==================== CHECK PAYMENT STATUS ====================
   app.get('/status/:orderId', {
     preHandler: [requireAuth],
   }, async (request, reply) => {
     const { orderId } = request.params as { orderId: string };
 
-    const transaction = await prisma.transaction.findFirst({
-      where: { orderId },
-      include: {
-        order: { select: { id: true, orderNumber: true, status: true } },
+    const [transaction] = await db.select({
+      id: transactions.id,
+      status: transactions.status,
+      amount: transactions.amount,
+      orderId: transactions.orderId,
+      order: {
+        id: orders.id,
+        orderNumber: orders.orderNumber,
+        status: orders.status,
       },
-    });
+    })
+      .from(transactions)
+      .innerJoin(orders, eq(transactions.orderId, orders.id))
+      .where(eq(transactions.orderId, orderId))
+      .limit(1);
 
     if (!transaction) {
       return reply.status(404).send({
@@ -142,11 +145,9 @@ export async function paymentRoutes(app: FastifyInstance) {
     });
   });
 
-  // ==================== MIDTRANS WEBHOOK ====================
   app.post('/webhook', async (request, reply) => {
     const body = request.body as any;
 
-    // Verify signature
     if (!verifyMidtransSignature(body)) {
       return reply.status(401).send({
         success: false,
@@ -156,10 +157,11 @@ export async function paymentRoutes(app: FastifyInstance) {
 
     const { order_id, transaction_status, fraud_status } = body;
 
-    // Find transaction by order_id
-    const transaction = await prisma.transaction.findFirst({
-      where: { order: { orderNumber: order_id } },
-    });
+    const [transaction] = await db.select()
+      .from(transactions)
+      .innerJoin(orders, eq(transactions.orderId, orders.id))
+      .where(eq(orders.orderNumber, order_id))
+      .limit(1);
 
     if (!transaction) {
       return reply.status(404).send({
@@ -168,7 +170,6 @@ export async function paymentRoutes(app: FastifyInstance) {
       });
     }
 
-    // Map Midtrans status
     let txStatus: any = 'PENDING';
     let orderStatus: any = 'WAITING_PAYMENT';
 
@@ -192,31 +193,27 @@ export async function paymentRoutes(app: FastifyInstance) {
       txStatus = 'FAILED';
     }
 
-    // Update transaction + order
-    await prisma.$transaction(async (tx: any) => {
-      await tx.transaction.update({
-        where: { id: transaction.id },
-        data: {
+    await db.transaction(async (tx) => {
+      await tx.update(transactions)
+        .set({
           status: txStatus,
           callbackData: body,
-        },
-      });
+        })
+        .where(eq(transactions.id, transaction.transactions.id));
 
-      const orderUpdate: any = { status: orderStatus };
+      const orderUpdate: Record<string, any> = { status: orderStatus };
       if (orderStatus === 'PAID') {
         orderUpdate.paidAt = new Date();
       }
 
-      await tx.order.update({
-        where: { id: transaction.orderId },
-        data: orderUpdate,
-      });
+      await tx.update(orders)
+        .set(orderUpdate)
+        .where(eq(orders.id, transaction.transactions.orderId));
     });
 
     return reply.status(200).send({ status: 'ok' });
   });
 
-  // ==================== ADMIN: LIST ALL TRANSACTIONS ====================
   app.get('/admin/all', {
     preHandler: [requireAdmin],
   }, async (request, reply) => {
@@ -228,35 +225,43 @@ export async function paymentRoutes(app: FastifyInstance) {
 
     const pageNum = Math.max(1, parseInt(page));
     const limitNum = Math.min(100, Math.max(1, parseInt(limit)));
-    const skip = (pageNum - 1) * limitNum;
+    const offset = (pageNum - 1) * limitNum;
 
-    const where: any = {};
-    if (status) where.status = status;
+    const whereClause = status ? eq(transactions.status, status as any) : undefined;
 
-    const [transactions, total] = await Promise.all([
-      prisma.transaction.findMany({
-        where,
-        orderBy: { createdAt: 'desc' },
-        skip,
-        take: limitNum,
-        include: {
-          order: {
-            select: { orderNumber: true, totalAmount: true },
-          },
+    const [transactionList, countResult] = await Promise.all([
+      db.select({
+        id: transactions.id,
+        orderId: transactions.orderId,
+        paymentId: transactions.paymentId,
+        amount: transactions.amount,
+        fee: transactions.fee,
+        status: transactions.status,
+        method: transactions.method,
+        createdAt: transactions.createdAt,
+        order: {
+          orderNumber: orders.orderNumber,
+          totalAmount: orders.totalAmount,
         },
-      }),
-      prisma.transaction.count({ where }),
+      })
+        .from(transactions)
+        .innerJoin(orders, eq(transactions.orderId, orders.id))
+        .where(whereClause)
+        .orderBy(desc(transactions.createdAt))
+        .limit(limitNum)
+        .offset(offset),
+      db.select({ count: count() }).from(transactions).where(whereClause),
     ]);
 
     return reply.status(200).send({
       success: true,
       data: {
-        transactions,
+        transactions: transactionList,
         pagination: {
           page: pageNum,
           limit: limitNum,
-          total,
-          totalPages: Math.ceil(total / limitNum),
+          total: countResult[0]?.count || 0,
+          totalPages: Math.ceil((countResult[0]?.count || 0) / limitNum),
         },
       },
     });

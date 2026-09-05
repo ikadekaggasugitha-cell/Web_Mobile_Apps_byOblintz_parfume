@@ -19,15 +19,11 @@
     "db:migrate": "pnpm --filter @oblintz/api run db:migrate",
     "db:seed": "pnpm --filter @oblintz/api run db:seed",
     "db:studio": "pnpm --filter @oblintz/api run db:studio",
-    "clean": "pnpm --parallel -r run clean",
-    "postinstall": "prisma skills sync || exit 0"
+    "clean": "pnpm --parallel -r run clean"
   },
   "engines": {
     "node": ">=20.0.0",
     "pnpm": ">=8.0.0"
   },
-  "packageManager": "pnpm@8.15.0",
-  "devDependencies": {
-    "prisma": "8.0.0-rc.12"
-  }
+  "packageManager": "pnpm@8.15.0"
 }

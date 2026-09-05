@@ -1,10 +1,12 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import type { FastifyInstance } from 'fastify';
-import prisma from '../../src/config/database';
+import { db } from '../../src/db';
+import { products } from '../../src/db/schema';
+import { sql } from 'drizzle-orm';
 import { buildApp } from './helpers/buildApp';
 
 // Only runs when a dedicated test database is configured.
-// Set DATABASE_URL_TEST (and run `prisma migrate deploy` against it) to enable.
+// Set DATABASE_URL_TEST to enable.
 const RUN = !!process.env.DATABASE_URL_TEST;
 const suite = RUN ? describe : describe.skip;
 
@@ -21,13 +23,12 @@ suite('product integration — real database constraints', () => {
 
   afterAll(async () => {
     // Clean up anything this suite created.
-    await prisma.product.deleteMany({ where: { slug: { startsWith: PREFIX } } }).catch(() => {});
+    await db.delete(products).where(sql`${products.slug} LIKE ${PREFIX + '%'}`);
     await app.close();
-    await prisma.$disconnect();
   });
 
   it('connects to the database', async () => {
-    const result = await prisma.$queryRaw`SELECT 1 as ok`;
+    const result = await db.execute(sql`SELECT 1 as ok`);
     expect(result).toBeTruthy();
   });
 

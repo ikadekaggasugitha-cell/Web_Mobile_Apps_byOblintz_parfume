@@ -1,5 +1,7 @@
 import { FastifyInstance } from 'fastify';
-import prisma from '../../config/database';
+import { db } from '../../db';
+import { products, promoCodes } from '../../db/schema';
+import { eq, and, inArray } from 'drizzle-orm';
 import { redis } from '../../config/redis';
 import { requireAuth } from '../../middleware/auth';
 import { checkoutSchema } from './checkout.schema';
@@ -8,7 +10,6 @@ import { handleRouteError } from '../../lib/errors';
 import { evaluatePromo } from '../../lib/promo';
 
 export async function checkoutRoutes(app: FastifyInstance) {
-  // ==================== PROCESS CHECKOUT ====================
   app.post('/', {
     preHandler: [requireAuth],
   }, async (request, reply) => {
@@ -36,14 +37,12 @@ export async function checkoutRoutes(app: FastifyInstance) {
     }
   });
 
-  // ==================== PREVIEW CHECKOUT ====================
   app.post('/preview', {
     preHandler: [requireAuth],
   }, async (request, reply) => {
     try {
       const { promoCode } = request.body as { promoCode?: string };
 
-      // Ambil cart
       const raw = await redis.get(`cart:${request.userId}`);
 
       if (!raw) {
@@ -56,11 +55,11 @@ export async function checkoutRoutes(app: FastifyInstance) {
       const cartItems = JSON.parse(raw);
       const productIds = cartItems.map((i: any) => i.productId);
 
-      const products: any[] = await prisma.product.findMany({
-        where: { id: { in: productIds }, status: 'ACTIVE' },
-      });
+      const productList = await db.select()
+        .from(products)
+        .where(and(inArray(products.id, productIds), eq(products.status, 'ACTIVE')));
 
-      const productMap = new Map(products.map((p) => [p.id, p]));
+      const productMap = new Map(productList.map((p) => [p.id, p]));
 
       let subtotal = 0;
       let totalGiftWrap = 0;
@@ -87,16 +86,15 @@ export async function checkoutRoutes(app: FastifyInstance) {
         });
       }
 
-      const shippingCost = 15000; // Standard
+      const shippingCost = 15000;
       let discount = 0;
 
       if (promoCode) {
-        const promo = await prisma.promoCode.findUnique({
-          where: { code: promoCode.toUpperCase() },
-        });
+        const [promo] = await db.select()
+          .from(promoCodes)
+          .where(eq(promoCodes.code, promoCode.toUpperCase()))
+          .limit(1);
 
-        // Same validation/calculation as the actual checkout (M1) so the
-        // previewed discount matches what will be applied.
         discount = evaluatePromo(promo, subtotal, shippingCost).discount;
       }
 

@@ -6,7 +6,8 @@ import multipart from '@fastify/multipart';
 import helmet from '@fastify/helmet';
 import { ZodError } from 'zod';
 import { config } from './config';
-import prisma from './config/database';
+import { db } from './db';
+import { sql } from 'drizzle-orm';
 import { redis } from './config/redis';
 import { AppError } from './lib/errors';
 import { authRoutes } from './modules/auth/auth.routes';
@@ -58,15 +59,16 @@ server.setErrorHandler((error, request, reply) => {
     });
   }
 
-  // Prisma errors
-  if (error.code === 'P2002') {
+  // PostgreSQL unique constraint violation
+  if (error.code === '23505') {
     return reply.status(409).send({
       success: false,
       error: { code: 'CONFLICT', message: 'Data sudah ada' },
     });
   }
 
-  if (error.code === 'P2025') {
+  // PostgreSQL foreign key violation
+  if (error.code === '23503') {
     return reply.status(404).send({
       success: false,
       error: { code: 'NOT_FOUND', message: 'Data tidak ditemukan' },
@@ -170,7 +172,7 @@ async function bootstrap() {
   });
 
   // Decorators
-  server.decorate('prisma', prisma);
+  server.decorate('db', db);
   server.decorate('redis', redis);
 
   // Health check (deep - verifikasi DB dan Redis)
@@ -181,7 +183,7 @@ async function bootstrap() {
     };
 
     try {
-      await prisma.$queryRaw`SELECT 1`;
+      await db.execute(sql`SELECT 1`);
       checks.database = true;
     } catch {
       // Database connection failed
@@ -246,7 +248,6 @@ signals.forEach((signal) => {
     }, 10000);
     try {
       await server.close();
-      await prisma.$disconnect();
       redis.disconnect();
     } catch (err) {
       server.log.error(err, 'Error during shutdown');

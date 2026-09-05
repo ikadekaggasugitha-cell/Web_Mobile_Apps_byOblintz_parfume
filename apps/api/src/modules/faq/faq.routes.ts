@@ -1,5 +1,7 @@
 import { FastifyInstance } from 'fastify';
-import prisma from '../../config/database';
+import { db } from '../../db';
+import { faqs } from '../../db/schema/cms';
+import { eq, and, asc, desc, count } from 'drizzle-orm';
 import { handleRouteError } from '../../lib/errors';
 import { requireAdmin } from '../../middleware/auth';
 import { createFaqSchema, updateFaqSchema } from './faq.schema';
@@ -19,23 +21,28 @@ export async function faqRoutes(app: FastifyInstance) {
     const limitNum = Math.min(100, Math.max(1, parseInt(limit)));
     const skip = (pageNum - 1) * limitNum;
 
-    const where: any = {};
-    if (category) where.category = category;
+    const where = category ? eq(faqs.category, category) : undefined;
 
-    const [faqs, total] = await Promise.all([
-      prisma.faq.findMany({
-        where,
-        orderBy: [{ sortOrder: 'asc' }, { createdAt: 'desc' }],
-        skip,
-        take: limitNum,
-      }),
-      prisma.faq.count({ where }),
+    const [faqsResult, totalResult] = await Promise.all([
+      db
+        .select()
+        .from(faqs)
+        .where(where)
+        .orderBy(asc(faqs.sortOrder), desc(faqs.createdAt))
+        .limit(limitNum)
+        .offset(skip),
+      db
+        .select({ count: count() })
+        .from(faqs)
+        .where(where),
     ]);
+
+    const total = totalResult[0].count;
 
     return reply.status(200).send({
       success: true,
       data: {
-        faqs,
+        faqs: faqsResult,
         pagination: {
           page: pageNum,
           limit: limitNum,
@@ -53,17 +60,18 @@ export async function faqRoutes(app: FastifyInstance) {
     try {
       const input = createFaqSchema.parse(request.body);
 
-      const faq = await prisma.faq.create({
-        data: {
+      const result = await db
+        .insert(faqs)
+        .values({
           question: input.question,
           answer: input.answer,
           category: input.category,
           sortOrder: input.sortOrder ?? 0,
           isActive: input.isActive,
-        },
-      });
+        })
+        .returning();
 
-      return reply.status(201).send({ success: true, data: faq });
+      return reply.status(201).send({ success: true, data: result[0] });
     } catch (error) {
       return handleRouteError(error, reply);
     }
@@ -75,8 +83,13 @@ export async function faqRoutes(app: FastifyInstance) {
   }, async (request, reply) => {
     const { id } = request.params as { id: string };
 
-    const faq = await prisma.faq.findUnique({ where: { id } });
-    if (!faq) {
+    const existing = await db
+      .select()
+      .from(faqs)
+      .where(eq(faqs.id, id))
+      .limit(1);
+
+    if (!existing[0]) {
       return reply.status(404).send({
         success: false,
         error: { code: 'NOT_FOUND', message: 'FAQ tidak ditemukan' },
@@ -86,18 +99,20 @@ export async function faqRoutes(app: FastifyInstance) {
     try {
       const input = updateFaqSchema.parse(request.body);
 
-      const updated = await prisma.faq.update({
-        where: { id },
-        data: {
-          ...(input.question !== undefined && { question: input.question }),
-          ...(input.answer !== undefined && { answer: input.answer }),
-          ...(input.category !== undefined && { category: input.category }),
-          ...(input.sortOrder !== undefined && { sortOrder: input.sortOrder }),
-          ...(input.isActive !== undefined && { isActive: input.isActive }),
-        },
-      });
+      const updateData: Record<string, any> = {};
+      if (input.question !== undefined) updateData.question = input.question;
+      if (input.answer !== undefined) updateData.answer = input.answer;
+      if (input.category !== undefined) updateData.category = input.category;
+      if (input.sortOrder !== undefined) updateData.sortOrder = input.sortOrder;
+      if (input.isActive !== undefined) updateData.isActive = input.isActive;
 
-      return reply.status(200).send({ success: true, data: updated });
+      const result = await db
+        .update(faqs)
+        .set(updateData)
+        .where(eq(faqs.id, id))
+        .returning();
+
+      return reply.status(200).send({ success: true, data: result[0] });
     } catch (error) {
       return handleRouteError(error, reply);
     }
@@ -109,15 +124,20 @@ export async function faqRoutes(app: FastifyInstance) {
   }, async (request, reply) => {
     const { id } = request.params as { id: string };
 
-    const faq = await prisma.faq.findUnique({ where: { id } });
-    if (!faq) {
+    const existing = await db
+      .select()
+      .from(faqs)
+      .where(eq(faqs.id, id))
+      .limit(1);
+
+    if (!existing[0]) {
       return reply.status(404).send({
         success: false,
         error: { code: 'NOT_FOUND', message: 'FAQ tidak ditemukan' },
       });
     }
 
-    await prisma.faq.delete({ where: { id } });
+    await db.delete(faqs).where(eq(faqs.id, id));
 
     return reply.status(200).send({
       success: true,
@@ -138,14 +158,14 @@ export async function faqRoutes(app: FastifyInstance) {
       });
     }
 
-    await prisma.$transaction(
-      ids.map((id, index) =>
-        prisma.faq.update({
-          where: { id },
-          data: { sortOrder: index + 1 },
-        })
-      )
-    );
+    await db.transaction(async (tx) => {
+      for (let i = 0; i < ids.length; i++) {
+        await tx
+          .update(faqs)
+          .set({ sortOrder: i + 1 })
+          .where(eq(faqs.id, ids[i]));
+      }
+    });
 
     return reply.status(200).send({
       success: true,

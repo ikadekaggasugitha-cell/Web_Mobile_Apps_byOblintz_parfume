@@ -1,5 +1,9 @@
 import { FastifyInstance } from 'fastify';
-import prisma from '../../config/database';
+import { eq, and, count, inArray } from 'drizzle-orm';
+import { db } from '../../db';
+import { collections, collectionItems } from '../../db/schema/collections';
+import { products } from '../../db/schema/products';
+import { reviews } from '../../db/schema/reviews';
 import { requireAuth } from '../../middleware/auth';
 
 export async function collectionRoutes(app: FastifyInstance) {
@@ -7,25 +11,50 @@ export async function collectionRoutes(app: FastifyInstance) {
   app.get('/', {
     preHandler: [requireAuth],
   }, async (request, reply) => {
-    const collections = await prisma.collection.findMany({
-      where: { userId: request.userId },
-      include: {
+    const userCollections = await db.query.collections.findMany({
+      where: eq(collections.userId, request.userId!),
+      orderBy: (collections, { desc }) => [desc(collections.createdAt)],
+      with: {
         items: {
-          include: {
+          orderBy: (collectionItems, { asc }) => [asc(collectionItems.sortOrder)],
+          with: {
             product: {
-              include: {
-                category: { select: { name: true } },
-                _count: { select: { reviews: true } },
+              with: {
+                category: true,
               },
             },
           },
-          orderBy: { sortOrder: 'asc' },
         },
       },
-      orderBy: { createdAt: 'desc' },
     });
 
-    return reply.status(200).send({ success: true, data: collections });
+    // Get review counts for each product
+    const productIds = userCollections
+      .flatMap(c => c.items.map(i => i.product.id));
+
+    let reviewCounts: Record<string, number> = {};
+    if (productIds.length > 0) {
+      const counts = await db
+        .select({ productId: reviews.productId, count: count() })
+        .from(reviews)
+        .where(inArray(reviews.productId, productIds))
+        .groupBy(reviews.productId);
+
+      reviewCounts = Object.fromEntries(counts.map(r => [r.productId, r.count]));
+    }
+
+    const data = userCollections.map(c => ({
+      ...c,
+      items: c.items.map(i => ({
+        ...i,
+        product: {
+          ...i.product,
+          _count: { reviews: reviewCounts[i.product.id] ?? 0 },
+        },
+      })),
+    }));
+
+    return reply.status(200).send({ success: true, data });
   });
 
   // ==================== CREATE COLLECTION ====================
@@ -41,12 +70,10 @@ export async function collectionRoutes(app: FastifyInstance) {
       });
     }
 
-    const collection = await prisma.collection.create({
-      data: {
-        userId: request.userId!,
-        name: name.trim(),
-      },
-    });
+    const [collection] = await db.insert(collections).values({
+      userId: request.userId!,
+      name: name.trim(),
+    }).returning();
 
     return reply.status(201).send({ success: true, data: collection });
   });
@@ -57,21 +84,21 @@ export async function collectionRoutes(app: FastifyInstance) {
   }, async (request, reply) => {
     const { id } = request.params as { id: string };
 
-    const collection = await prisma.collection.findFirst({
-      where: { id, userId: request.userId },
-      include: {
+    const [collection] = await db.query.collections.findMany({
+      where: and(eq(collections.id, id), eq(collections.userId, request.userId!)),
+      with: {
         items: {
-          include: {
+          orderBy: (collectionItems, { asc }) => [asc(collectionItems.sortOrder)],
+          with: {
             product: {
-              include: {
-                category: { select: { name: true } },
-                _count: { select: { reviews: true } },
+              with: {
+                category: true,
               },
             },
           },
-          orderBy: { sortOrder: 'asc' },
         },
       },
+      limit: 1,
     });
 
     if (!collection) {
@@ -81,7 +108,31 @@ export async function collectionRoutes(app: FastifyInstance) {
       });
     }
 
-    return reply.status(200).send({ success: true, data: collection });
+    // Get review counts
+    const productIds = collection.items.map(i => i.product.id);
+    let reviewCounts: Record<string, number> = {};
+    if (productIds.length > 0) {
+      const counts = await db
+        .select({ productId: reviews.productId, count: count() })
+        .from(reviews)
+        .where(inArray(reviews.productId, productIds))
+        .groupBy(reviews.productId);
+
+      reviewCounts = Object.fromEntries(counts.map(r => [r.productId, r.count]));
+    }
+
+    const data = {
+      ...collection,
+      items: collection.items.map(i => ({
+        ...i,
+        product: {
+          ...i.product,
+          _count: { reviews: reviewCounts[i.product.id] ?? 0 },
+        },
+      })),
+    };
+
+    return reply.status(200).send({ success: true, data });
   });
 
   // ==================== UPDATE COLLECTION ====================
@@ -91,21 +142,20 @@ export async function collectionRoutes(app: FastifyInstance) {
     const { id } = request.params as { id: string };
     const { name } = request.body as { name: string };
 
-    const collection = await prisma.collection.findFirst({
-      where: { id, userId: request.userId },
-    });
+    const [existing] = await db.select().from(collections).where(
+      and(eq(collections.id, id), eq(collections.userId, request.userId!))
+    ).limit(1);
 
-    if (!collection) {
+    if (!existing) {
       return reply.status(404).send({
         success: false,
         error: { code: 'NOT_FOUND', message: 'Koleksi tidak ditemukan' },
       });
     }
 
-    const updated = await prisma.collection.update({
-      where: { id },
-      data: { name: name || collection.name },
-    });
+    const [updated] = await db.update(collections).set({
+      name: name || existing.name,
+    }).where(eq(collections.id, id)).returning();
 
     return reply.status(200).send({ success: true, data: updated });
   });
@@ -116,19 +166,19 @@ export async function collectionRoutes(app: FastifyInstance) {
   }, async (request, reply) => {
     const { id } = request.params as { id: string };
 
-    const collection = await prisma.collection.findFirst({
-      where: { id, userId: request.userId },
-    });
+    const [existing] = await db.select().from(collections).where(
+      and(eq(collections.id, id), eq(collections.userId, request.userId!))
+    ).limit(1);
 
-    if (!collection) {
+    if (!existing) {
       return reply.status(404).send({
         success: false,
         error: { code: 'NOT_FOUND', message: 'Koleksi tidak ditemukan' },
       });
     }
 
-    await prisma.collectionItem.deleteMany({ where: { collectionId: id } });
-    await prisma.collection.delete({ where: { id } });
+    await db.delete(collectionItems).where(eq(collectionItems.collectionId, id));
+    await db.delete(collections).where(eq(collections.id, id));
 
     return reply.status(200).send({
       success: true,
@@ -143,18 +193,18 @@ export async function collectionRoutes(app: FastifyInstance) {
     const { id } = request.params as { id: string };
     const { productId } = request.body as { productId: string };
 
-    const collection = await prisma.collection.findFirst({
-      where: { id, userId: request.userId },
-    });
+    const [existingCollection] = await db.select().from(collections).where(
+      and(eq(collections.id, id), eq(collections.userId, request.userId!))
+    ).limit(1);
 
-    if (!collection) {
+    if (!existingCollection) {
       return reply.status(404).send({
         success: false,
         error: { code: 'NOT_FOUND', message: 'Koleksi tidak ditemukan' },
       });
     }
 
-    const product = await prisma.product.findUnique({ where: { id: productId } });
+    const [product] = await db.select().from(products).where(eq(products.id, productId)).limit(1);
     if (!product) {
       return reply.status(404).send({
         success: false,
@@ -163,11 +213,11 @@ export async function collectionRoutes(app: FastifyInstance) {
     }
 
     // Cek duplikat
-    const existing = await prisma.collectionItem.findFirst({
-      where: { collectionId: id, productId },
-    });
+    const [existingItem] = await db.select().from(collectionItems).where(
+      and(eq(collectionItems.collectionId, id), eq(collectionItems.productId, productId))
+    ).limit(1);
 
-    if (existing) {
+    if (existingItem) {
       return reply.status(409).send({
         success: false,
         error: { code: 'CONFLICT', message: 'Produk sudah ada di koleksi' },
@@ -175,16 +225,15 @@ export async function collectionRoutes(app: FastifyInstance) {
     }
 
     // Get sort order
-    const count = await prisma.collectionItem.count({
-      where: { collectionId: id },
-    });
+    const [{ itemCount }] = await db
+      .select({ itemCount: count() })
+      .from(collectionItems)
+      .where(eq(collectionItems.collectionId, id));
 
-    await prisma.collectionItem.create({
-      data: {
-        collectionId: id,
-        productId,
-        sortOrder: count,
-      },
+    await db.insert(collectionItems).values({
+      collectionId: id,
+      productId,
+      sortOrder: itemCount,
     });
 
     return reply.status(201).send({
@@ -199,20 +248,20 @@ export async function collectionRoutes(app: FastifyInstance) {
   }, async (request, reply) => {
     const { id, productId } = request.params as { id: string; productId: string };
 
-    const collection = await prisma.collection.findFirst({
-      where: { id, userId: request.userId },
-    });
+    const [existingCollection] = await db.select().from(collections).where(
+      and(eq(collections.id, id), eq(collections.userId, request.userId!))
+    ).limit(1);
 
-    if (!collection) {
+    if (!existingCollection) {
       return reply.status(404).send({
         success: false,
         error: { code: 'NOT_FOUND', message: 'Koleksi tidak ditemukan' },
       });
     }
 
-    const item = await prisma.collectionItem.findFirst({
-      where: { collectionId: id, productId },
-    });
+    const [item] = await db.select().from(collectionItems).where(
+      and(eq(collectionItems.collectionId, id), eq(collectionItems.productId, productId))
+    ).limit(1);
 
     if (!item) {
       return reply.status(404).send({
@@ -221,7 +270,7 @@ export async function collectionRoutes(app: FastifyInstance) {
       });
     }
 
-    await prisma.collectionItem.delete({ where: { id: item.id } });
+    await db.delete(collectionItems).where(eq(collectionItems.id, item.id));
 
     return reply.status(200).send({
       success: true,

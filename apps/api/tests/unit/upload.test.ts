@@ -127,7 +127,7 @@ describe('upload module', () => {
     });
 
     it('returns 400 FILE_TOO_LARGE when exceeding the size limit', async () => {
-      configHolder.config.storage.maxFileSize = 3; // 3 bytes
+      configHolder.config.storage.maxFileSize = 3;
       const { body, headers } = fileMultipart('big.png', 'image/png', 'this-is-too-long');
       const res = await app.inject({
         method: 'POST',

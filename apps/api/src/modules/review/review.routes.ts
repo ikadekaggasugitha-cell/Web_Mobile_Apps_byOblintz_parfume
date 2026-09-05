@@ -1,5 +1,11 @@
 import { FastifyInstance } from 'fastify';
-import prisma from '../../config/database';
+import { db } from '../../db';
+import { reviews } from '../../db/schema/reviews';
+import { users } from '../../db/schema/users';
+import { products } from '../../db/schema/products';
+import { orderItems } from '../../db/schema/orders';
+import { orders } from '../../db/schema/orders';
+import { eq, and, desc, asc, count, sql } from 'drizzle-orm';
 import { handleRouteError } from '../../lib/errors';
 import { requireAuth, requireAdmin } from '../../middleware/auth';
 import { createReviewSchema, updateReviewSchema } from './review.schema';
@@ -17,44 +23,68 @@ export async function reviewRoutes(app: FastifyInstance) {
     const limitNum = Math.min(50, Math.max(1, parseInt(limit)));
     const skip = (pageNum - 1) * limitNum;
 
-    const where = { productId, status: 'APPROVED' as const };
+    const where = and(eq(reviews.productId, productId), eq(reviews.status, 'APPROVED'));
 
-    const [reviews, total, stats, distributionResult] = await Promise.all([
-      prisma.review.findMany({
-        where,
-        orderBy: { createdAt: 'desc' },
-        skip,
-        take: limitNum,
-        include: {
-          user: { select: { id: true, name: true, avatar: true } },
-        },
-      }),
-      prisma.review.count({ where }),
-      prisma.review.aggregate({
-        where,
-        _avg: { rating: true },
-        _count: { rating: true },
-      }),
-      prisma.review.groupBy({
-        by: ['rating'],
-        where: { productId, status: 'APPROVED' },
-        _count: { rating: true },
-      }),
+    const [reviewsResult, totalResult, statsResult, distributionResult] = await Promise.all([
+      db
+        .select({
+          id: reviews.id,
+          userId: reviews.userId,
+          productId: reviews.productId,
+          rating: reviews.rating,
+          comment: reviews.comment,
+          images: reviews.images,
+          status: reviews.status,
+          createdAt: reviews.createdAt,
+          user: {
+            id: users.id,
+            name: users.name,
+            avatar: users.avatar,
+          },
+        })
+        .from(reviews)
+        .innerJoin(users, eq(reviews.userId, users.id))
+        .where(where)
+        .orderBy(desc(reviews.createdAt))
+        .limit(limitNum)
+        .offset(skip),
+      db
+        .select({ count: count() })
+        .from(reviews)
+        .where(where),
+      db
+        .select({
+          avgRating: sql<number>`COALESCE(AVG(${reviews.rating}), 0)`,
+          total: count(),
+        })
+        .from(reviews)
+        .where(where),
+      db
+        .select({
+          rating: reviews.rating,
+          count: count(),
+        })
+        .from(reviews)
+        .where(and(eq(reviews.productId, productId), eq(reviews.status, 'APPROVED')))
+        .groupBy(reviews.rating),
     ]);
+
+    const total = totalResult[0].count;
+    const avgRating = statsResult[0].avgRating;
 
     // Build distribution from groupBy result
     const distribution: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
     distributionResult.forEach((item) => {
-      distribution[item.rating] = item._count.rating;
+      distribution[item.rating] = item.count;
     });
 
     return reply.status(200).send({
       success: true,
       data: {
-        reviews,
+        reviews: reviewsResult,
         stats: {
-          average: stats._avg.rating ? Math.round(stats._avg.rating * 10) / 10 : 0,
-          total: stats._count.rating,
+          average: Math.round(Number(avgRating) * 10) / 10,
+          total: total,
           distribution,
         },
         pagination: {
@@ -75,17 +105,21 @@ export async function reviewRoutes(app: FastifyInstance) {
       const input = createReviewSchema.parse(request.body);
 
       // Cek user punya order DELIVERED dengan produk ini
-      const hasPurchased = await prisma.orderItem.findFirst({
-        where: {
-          product: { id: input.productId },
-          order: {
-            userId: request.userId,
-            status: 'DELIVERED',
-          },
-        },
-      });
+      const hasPurchased = await db
+        .select()
+        .from(orderItems)
+        .innerJoin(orders, eq(orderItems.orderId, orders.id))
+        .innerJoin(products, eq(orderItems.productId, products.id))
+        .where(
+          and(
+            eq(products.id, input.productId),
+            eq(orders.userId, request.userId!),
+            eq(orders.status, 'DELIVERED')
+          )
+        )
+        .limit(1);
 
-      if (!hasPurchased) {
+      if (!hasPurchased[0]) {
         return reply.status(400).send({
           success: false,
           error: {
@@ -96,14 +130,13 @@ export async function reviewRoutes(app: FastifyInstance) {
       }
 
       // Cek sudah review belum
-      const existingReview = await prisma.review.findFirst({
-        where: {
-          userId: request.userId,
-          productId: input.productId,
-        },
-      });
+      const existingReview = await db
+        .select()
+        .from(reviews)
+        .where(and(eq(reviews.userId, request.userId!), eq(reviews.productId, input.productId)))
+        .limit(1);
 
-      if (existingReview) {
+      if (existingReview[0]) {
         return reply.status(409).send({
           success: false,
           error: {
@@ -113,21 +146,43 @@ export async function reviewRoutes(app: FastifyInstance) {
         });
       }
 
-      const review = await prisma.review.create({
-        data: {
+      const result = await db
+        .insert(reviews)
+        .values({
           userId: request.userId!,
           productId: input.productId,
           rating: input.rating,
           comment: input.comment,
           images: input.images || [],
           status: 'PENDING',
-        },
-        include: {
-          user: { select: { id: true, name: true, avatar: true } },
-        },
-      });
+        })
+        .returning();
 
-      return reply.status(201).send({ success: true, data: review });
+      const newReview = result[0];
+
+      // Fetch user data separately
+      const reviewWithUser = await db
+        .select({
+          id: reviews.id,
+          userId: reviews.userId,
+          productId: reviews.productId,
+          rating: reviews.rating,
+          comment: reviews.comment,
+          images: reviews.images,
+          status: reviews.status,
+          createdAt: reviews.createdAt,
+          user: {
+            id: users.id,
+            name: users.name,
+            avatar: users.avatar,
+          },
+        })
+        .from(reviews)
+        .innerJoin(users, eq(reviews.userId, users.id))
+        .where(eq(reviews.id, newReview.id))
+        .limit(1);
+
+      return reply.status(201).send({ success: true, data: reviewWithUser[0] });
     } catch (error) {
       return handleRouteError(error, reply);
     }
@@ -139,11 +194,13 @@ export async function reviewRoutes(app: FastifyInstance) {
   }, async (request, reply) => {
     const { id } = request.params as { id: string };
 
-    const review = await prisma.review.findFirst({
-      where: { id, userId: request.userId },
-    });
+    const existing = await db
+      .select()
+      .from(reviews)
+      .where(and(eq(reviews.id, id), eq(reviews.userId, request.userId!)))
+      .limit(1);
 
-    if (!review) {
+    if (!existing[0]) {
       return reply.status(404).send({
         success: false,
         error: { code: 'NOT_FOUND', message: 'Review tidak ditemukan' },
@@ -153,20 +210,40 @@ export async function reviewRoutes(app: FastifyInstance) {
     try {
       const input = updateReviewSchema.parse(request.body);
 
-      const updated = await prisma.review.update({
-        where: { id },
-        data: {
-          ...(input.rating && { rating: input.rating }),
-          ...(input.comment && { comment: input.comment }),
-          ...(input.images && { images: input.images }),
-          status: 'PENDING',
-        },
-        include: {
-          user: { select: { id: true, name: true, avatar: true } },
-        },
-      });
+      const updateData: Record<string, any> = { status: 'PENDING' };
+      if (input.rating) updateData.rating = input.rating;
+      if (input.comment) updateData.comment = input.comment;
+      if (input.images) updateData.images = input.images;
 
-      return reply.status(200).send({ success: true, data: updated });
+      const result = await db
+        .update(reviews)
+        .set(updateData)
+        .where(eq(reviews.id, id))
+        .returning();
+
+      // Fetch with user data
+      const updatedWithUser = await db
+        .select({
+          id: reviews.id,
+          userId: reviews.userId,
+          productId: reviews.productId,
+          rating: reviews.rating,
+          comment: reviews.comment,
+          images: reviews.images,
+          status: reviews.status,
+          createdAt: reviews.createdAt,
+          user: {
+            id: users.id,
+            name: users.name,
+            avatar: users.avatar,
+          },
+        })
+        .from(reviews)
+        .innerJoin(users, eq(reviews.userId, users.id))
+        .where(eq(reviews.id, id))
+        .limit(1);
+
+      return reply.status(200).send({ success: true, data: updatedWithUser[0] });
     } catch (error) {
       return handleRouteError(error, reply);
     }
@@ -178,18 +255,20 @@ export async function reviewRoutes(app: FastifyInstance) {
   }, async (request, reply) => {
     const { id } = request.params as { id: string };
 
-    const review = await prisma.review.findFirst({
-      where: { id, userId: request.userId },
-    });
+    const existing = await db
+      .select()
+      .from(reviews)
+      .where(and(eq(reviews.id, id), eq(reviews.userId, request.userId!)))
+      .limit(1);
 
-    if (!review) {
+    if (!existing[0]) {
       return reply.status(404).send({
         success: false,
         error: { code: 'NOT_FOUND', message: 'Review tidak ditemukan' },
       });
     }
 
-    await prisma.review.delete({ where: { id } });
+    await db.delete(reviews).where(eq(reviews.id, id));
 
     return reply.status(200).send({
       success: true,
@@ -210,26 +289,49 @@ export async function reviewRoutes(app: FastifyInstance) {
     const limitNum = Math.min(100, Math.max(1, parseInt(limit)));
     const skip = (pageNum - 1) * limitNum;
 
-    const where = { status: 'PENDING' as const };
+    const where = eq(reviews.status, 'PENDING');
 
-    const [reviews, total] = await Promise.all([
-      prisma.review.findMany({
-        where,
-        orderBy: { createdAt: 'asc' },
-        skip,
-        take: limitNum,
-        include: {
-          user: { select: { id: true, name: true, email: true } },
-          product: { select: { id: true, name: true, slug: true } },
-        },
-      }),
-      prisma.review.count({ where }),
+    const [reviewsResult, totalResult] = await Promise.all([
+      db
+        .select({
+          id: reviews.id,
+          userId: reviews.userId,
+          productId: reviews.productId,
+          rating: reviews.rating,
+          comment: reviews.comment,
+          images: reviews.images,
+          status: reviews.status,
+          createdAt: reviews.createdAt,
+          user: {
+            id: users.id,
+            name: users.name,
+            email: users.email,
+          },
+          product: {
+            id: products.id,
+            name: products.name,
+            slug: products.slug,
+          },
+        })
+        .from(reviews)
+        .innerJoin(users, eq(reviews.userId, users.id))
+        .innerJoin(products, eq(reviews.productId, products.id))
+        .where(where)
+        .orderBy(asc(reviews.createdAt))
+        .limit(limitNum)
+        .offset(skip),
+      db
+        .select({ count: count() })
+        .from(reviews)
+        .where(where),
     ]);
+
+    const total = totalResult[0].count;
 
     return reply.status(200).send({
       success: true,
       data: {
-        reviews,
+        reviews: reviewsResult,
         pagination: {
           page: pageNum,
           limit: limitNum,
@@ -246,20 +348,26 @@ export async function reviewRoutes(app: FastifyInstance) {
   }, async (request, reply) => {
     const { id } = request.params as { id: string };
 
-    const review = await prisma.review.findUnique({ where: { id } });
-    if (!review) {
+    const existing = await db
+      .select()
+      .from(reviews)
+      .where(eq(reviews.id, id))
+      .limit(1);
+
+    if (!existing[0]) {
       return reply.status(404).send({
         success: false,
         error: { code: 'NOT_FOUND', message: 'Review tidak ditemukan' },
       });
     }
 
-    const updated = await prisma.review.update({
-      where: { id },
-      data: { status: 'APPROVED' },
-    });
+    const result = await db
+      .update(reviews)
+      .set({ status: 'APPROVED' })
+      .where(eq(reviews.id, id))
+      .returning();
 
-    return reply.status(200).send({ success: true, data: updated });
+    return reply.status(200).send({ success: true, data: result[0] });
   });
 
   // ==================== ADMIN: REJECT REVIEW ====================
@@ -268,15 +376,20 @@ export async function reviewRoutes(app: FastifyInstance) {
   }, async (request, reply) => {
     const { id } = request.params as { id: string };
 
-    const review = await prisma.review.findUnique({ where: { id } });
-    if (!review) {
+    const existing = await db
+      .select()
+      .from(reviews)
+      .where(eq(reviews.id, id))
+      .limit(1);
+
+    if (!existing[0]) {
       return reply.status(404).send({
         success: false,
         error: { code: 'NOT_FOUND', message: 'Review tidak ditemukan' },
       });
     }
 
-    await prisma.review.delete({ where: { id } });
+    await db.delete(reviews).where(eq(reviews.id, id));
 
     return reply.status(200).send({
       success: true,

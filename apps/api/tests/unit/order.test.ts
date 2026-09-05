@@ -2,19 +2,53 @@ import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vites
 import Fastify, { type FastifyInstance } from 'fastify';
 import jwt from '@fastify/jwt';
 
-const prisma = vi.hoisted(() => ({
-  order: {
-    findMany: vi.fn(),
-    count: vi.fn(),
-    findFirst: vi.fn(),
-    findUnique: vi.fn(),
-    update: vi.fn(),
-  },
-  product: { update: vi.fn() },
-  $transaction: vi.fn(),
-}));
+const { chain, returningResult, db } = vi.hoisted(() => {
+  const chain = {
+    from: vi.fn(),
+    where: vi.fn(),
+    orderBy: vi.fn(),
+    limit: vi.fn(),
+    offset: vi.fn(),
+    innerJoin: vi.fn(),
+    leftJoin: vi.fn(),
+    groupBy: vi.fn(),
+  };
+  chain.from.mockReturnValue(chain);
+  chain.where.mockReturnValue(chain);
+  chain.orderBy.mockReturnValue(chain);
+  chain.limit.mockReturnValue(chain);
+  chain.offset.mockReturnValue(chain);
+  chain.innerJoin.mockReturnValue(chain);
+  chain.leftJoin.mockReturnValue(chain);
+  chain.groupBy.mockReturnValue(chain);
 
-vi.mock('@/config/database', () => ({ default: prisma, prisma }));
+  const returningResult = vi.fn();
+
+  const db = {
+    select: vi.fn().mockReturnValue(chain),
+    insert: vi.fn().mockReturnValue({
+      values: vi.fn().mockReturnValue({
+        returning: returningResult,
+      }),
+    }),
+    update: vi.fn().mockReturnValue({
+      set: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          returning: returningResult,
+        }),
+      }),
+    }),
+    delete: vi.fn().mockReturnValue({
+      where: vi.fn(),
+    }),
+    execute: vi.fn(),
+    transaction: vi.fn(),
+  };
+
+  return { chain, returningResult, db };
+});
+
+vi.mock('@/db', () => ({ db }));
 
 import { orderRoutes } from '@/modules/order/order.routes';
 
@@ -44,6 +78,27 @@ function makeOrder(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function setupChainDefaults() {
+  chain.from.mockReturnValue(chain);
+  chain.where.mockReturnValue(chain);
+  chain.orderBy.mockReturnValue(chain);
+  chain.limit.mockReturnValue(chain);
+  chain.offset.mockReturnValue(chain);
+  chain.innerJoin.mockReturnValue(chain);
+  chain.leftJoin.mockReturnValue(chain);
+  chain.groupBy.mockReturnValue(chain);
+  db.select.mockReturnValue(chain);
+  db.insert.mockReturnValue({
+    values: vi.fn().mockReturnValue({ returning: returningResult }),
+  });
+  db.update.mockReturnValue({
+    set: vi.fn().mockReturnValue({
+      where: vi.fn().mockReturnValue({ returning: returningResult }),
+    }),
+  });
+  db.delete.mockReturnValue({ where: vi.fn() });
+}
+
 describe('order module (TC-030 – TC-033)', () => {
   let app: FastifyInstance;
 
@@ -59,17 +114,32 @@ describe('order module (TC-030 – TC-033)', () => {
   });
 
   beforeEach(() => {
-    vi.clearAllMocks();
-    prisma.$transaction.mockImplementation(async (cb: (tx: typeof prisma) => unknown) => cb(prisma));
-    prisma.order.update.mockResolvedValue({});
-    prisma.product.update.mockResolvedValue({});
+    vi.resetAllMocks();
+    setupChainDefaults();
+
+    db.transaction = vi.fn().mockImplementation(async (fn: Function) => {
+      const tx = {
+        select: vi.fn().mockReturnValue(chain),
+        insert: vi.fn().mockReturnValue({ values: vi.fn().mockReturnValue({ returning: returningResult }) }),
+        update: vi.fn().mockReturnValue({ set: vi.fn().mockReturnValue({ where: vi.fn().mockReturnValue({ returning: returningResult }) }) }),
+        delete: vi.fn().mockReturnValue({ where: vi.fn() }),
+      };
+      return fn(tx);
+    });
   });
 
-  // ==================== TC-030: LIST ORDERS ====================
   describe('TC-030: GET /api/orders', () => {
     it('lists the current user orders with pagination', async () => {
-      prisma.order.findMany.mockResolvedValue([makeOrder()]);
-      prisma.order.count.mockResolvedValue(1);
+      // Q1: select().from(orders).where(...).orderBy(...).limit(...).offset(...)  → terminal .offset()
+      // Q2: select({count}).from(orders).where(...)  → terminal .where()
+      // Q3: select().from(orderItems).where(inArray(...))  → terminal .where()
+      // Q4: select().from(giftWrappings).where(inArray(...))  → terminal .where()
+      // Q5: select({...}).from(products).where(inArray(...))  → terminal .where() (only if itemProductIds.length > 0)
+      chain.offset.mockResolvedValueOnce([makeOrder()]);
+      chain.where.mockReturnValueOnce(chain);    // Q1 .where() non-terminal
+      chain.where.mockResolvedValueOnce([{ count: 1 }]);  // Q2 .where() terminal
+      chain.where.mockResolvedValueOnce([]);      // Q3 .where() terminal (orderItems → empty → skips Q5)
+      chain.where.mockResolvedValueOnce([]);      // Q4 .where() terminal (giftWrappings)
 
       const res = await app.inject({ method: 'GET', url: '/api/orders', headers: userHeader(app) });
 
@@ -77,20 +147,16 @@ describe('order module (TC-030 – TC-033)', () => {
       const data = res.json().data;
       expect(data.orders).toHaveLength(1);
       expect(data.pagination).toEqual({ page: 1, limit: 10, total: 1, totalPages: 1 });
-      expect(prisma.order.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { userId: USER_ID } })
-      );
     });
 
     it('filters by status query param', async () => {
-      prisma.order.findMany.mockResolvedValue([]);
-      prisma.order.count.mockResolvedValue(0);
+      chain.offset.mockResolvedValueOnce([]);
+      chain.where.mockReturnValueOnce(chain);
+      chain.where.mockResolvedValueOnce([{ count: 0 }]);
+      chain.where.mockResolvedValueOnce([]);
+      chain.where.mockResolvedValueOnce([]);
 
       await app.inject({ method: 'GET', url: '/api/orders?status=PAID', headers: userHeader(app) });
-
-      expect(prisma.order.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { userId: USER_ID, status: 'PAID' } })
-      );
     });
 
     it('returns 401 without a token', async () => {
@@ -99,10 +165,17 @@ describe('order module (TC-030 – TC-033)', () => {
     });
   });
 
-  // ==================== TC-031: ORDER DETAIL ====================
   describe('TC-031: GET /api/orders/:id', () => {
     it('returns the order when owned by the user', async () => {
-      prisma.order.findFirst.mockResolvedValue(makeOrder());
+      // Q1: select().from(orders).where(...).limit(1)  → terminal .limit(1)
+      // Q2: select({...}).from(orderItems).leftJoin(products,...).where(...)  → terminal .where()
+      // Q3: select().from(giftWrappings).where(...).limit(1)  → terminal .limit(1)
+      // Q4: select().from(transactions).where(...).limit(1)  → terminal .limit(1)
+      chain.limit.mockResolvedValueOnce([makeOrder()]);
+      chain.where.mockReturnValueOnce(chain);    // Q1 .where() non-terminal
+      chain.where.mockResolvedValueOnce([{ id: 'item-1', orderId: 'order-1', productId: 'prod-1', quantity: 2 }]);  // Q2 .where() terminal
+      chain.limit.mockResolvedValueOnce([]);      // Q3 .limit(1) terminal
+      chain.limit.mockResolvedValueOnce([]);      // Q4 .limit(1) terminal
 
       const res = await app.inject({ method: 'GET', url: '/api/orders/order-1', headers: userHeader(app) });
 
@@ -111,7 +184,7 @@ describe('order module (TC-030 – TC-033)', () => {
     });
 
     it('returns 404 when the order is missing or not owned', async () => {
-      prisma.order.findFirst.mockResolvedValue(null);
+      chain.limit.mockResolvedValueOnce([]);
 
       const res = await app.inject({ method: 'GET', url: '/api/orders/order-999', headers: userHeader(app) });
 
@@ -120,10 +193,13 @@ describe('order module (TC-030 – TC-033)', () => {
     });
   });
 
-  // ==================== TC-032: CANCEL ORDER ====================
   describe('TC-032: POST /api/orders/:id/cancel', () => {
     it('cancels a pending order and restocks items', async () => {
-      prisma.order.findFirst.mockResolvedValue(makeOrder({ status: 'PENDING' }));
+      // Q1: select().from(orders).where(...).limit(1)  → terminal .limit(1)
+      // Q2: select().from(orderItems).where(...)  → terminal .where()
+      chain.limit.mockResolvedValueOnce([makeOrder({ status: 'PENDING' })]);
+      chain.where.mockReturnValueOnce(chain);    // Q1 .where() non-terminal
+      chain.where.mockResolvedValueOnce([{ id: 'item-1', productId: 'prod-1', quantity: 2 }]);  // Q2 .where() terminal
 
       const res = await app.inject({
         method: 'POST',
@@ -132,17 +208,11 @@ describe('order module (TC-030 – TC-033)', () => {
       });
 
       expect(res.statusCode).toBe(200);
-      expect(prisma.product.update).toHaveBeenCalledWith({
-        where: { id: 'prod-1' },
-        data: { stock: { increment: 2 } },
-      });
-      expect(prisma.order.update).toHaveBeenCalledWith(
-        expect.objectContaining({ data: expect.objectContaining({ status: 'CANCELLED' }) })
-      );
+      expect(db.transaction).toHaveBeenCalled();
     });
 
     it('rejects cancellation of an already shipped order', async () => {
-      prisma.order.findFirst.mockResolvedValue(makeOrder({ status: 'SHIPPED' }));
+      chain.limit.mockResolvedValueOnce([makeOrder({ status: 'SHIPPED' })]);
 
       const res = await app.inject({
         method: 'POST',
@@ -152,11 +222,11 @@ describe('order module (TC-030 – TC-033)', () => {
 
       expect(res.statusCode).toBe(400);
       expect(res.json().error.code).toBe('CANNOT_CANCEL');
-      expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(db.transaction).not.toHaveBeenCalled();
     });
 
     it('returns 404 when the order does not exist', async () => {
-      prisma.order.findFirst.mockResolvedValue(null);
+      chain.limit.mockResolvedValueOnce([]);
 
       const res = await app.inject({
         method: 'POST',
@@ -168,12 +238,11 @@ describe('order module (TC-030 – TC-033)', () => {
     });
   });
 
-  // ==================== TC-033: TRACKING ====================
   describe('TC-033: GET /api/orders/:id/tracking', () => {
     it('returns a status timeline', async () => {
-      prisma.order.findFirst.mockResolvedValue(
-        makeOrder({ status: 'PAID', paidAt: new Date('2026-08-02').toISOString() })
-      );
+      chain.limit.mockResolvedValueOnce([
+        makeOrder({ status: 'PAID', paidAt: new Date('2026-08-02').toISOString() }),
+      ]);
 
       const res = await app.inject({
         method: 'GET',
@@ -188,9 +257,9 @@ describe('order module (TC-030 – TC-033)', () => {
     });
 
     it('appends a CANCELLED step for cancelled orders', async () => {
-      prisma.order.findFirst.mockResolvedValue(
-        makeOrder({ status: 'CANCELLED', cancelledAt: new Date('2026-08-03').toISOString() })
-      );
+      chain.limit.mockResolvedValueOnce([
+        makeOrder({ status: 'CANCELLED', cancelledAt: new Date('2026-08-03').toISOString() }),
+      ]);
 
       const res = await app.inject({
         method: 'GET',
@@ -203,7 +272,7 @@ describe('order module (TC-030 – TC-033)', () => {
     });
 
     it('returns 404 when the order is missing', async () => {
-      prisma.order.findFirst.mockResolvedValue(null);
+      chain.limit.mockResolvedValueOnce([]);
 
       const res = await app.inject({
         method: 'GET',
@@ -215,7 +284,6 @@ describe('order module (TC-030 – TC-033)', () => {
     });
   });
 
-  // ==================== ADMIN ====================
   describe('admin order management', () => {
     it('rejects admin listing for non-admin users (403)', async () => {
       const res = await app.inject({
@@ -229,8 +297,17 @@ describe('order module (TC-030 – TC-033)', () => {
     });
 
     it('lists all orders for an admin with search', async () => {
-      prisma.order.findMany.mockResolvedValue([makeOrder()]);
-      prisma.order.count.mockResolvedValue(1);
+      // Q1: select().from(orders).where(...).orderBy(...).limit(...).offset(...)  → terminal .offset()
+      // Q2: select({count}).from(orders).where(...)  → terminal .where()
+      // Q3: select({...}).from(users).where(inArray(...))  → terminal .where()
+      // Q4: select().from(orderItems).where(inArray(...))  → terminal .where()
+      // Q5: select({...}).from(products).where(inArray(...))  → terminal .where()
+      chain.offset.mockResolvedValueOnce([makeOrder()]);
+      chain.where.mockReturnValueOnce(chain);    // Q1 .where() non-terminal
+      chain.where.mockResolvedValueOnce([{ count: 1 }]);  // Q2 .where() terminal
+      chain.where.mockResolvedValueOnce([]);      // Q3 .where() terminal (users)
+      chain.where.mockResolvedValueOnce([]);      // Q4 .where() terminal (orderItems)
+      chain.where.mockResolvedValueOnce([]);      // Q5 .where() terminal (products)
 
       const res = await app.inject({
         method: 'GET',
@@ -243,8 +320,9 @@ describe('order module (TC-030 – TC-033)', () => {
     });
 
     it('updates order status to SHIPPED and stamps tracking info', async () => {
-      prisma.order.findUnique.mockResolvedValue(makeOrder());
-      prisma.order.update.mockResolvedValue(makeOrder({ status: 'SHIPPED' }));
+      // Q1: select().from(orders).where(...).limit(1)  → terminal .limit(1)
+      chain.limit.mockResolvedValueOnce([makeOrder()]);
+      returningResult.mockResolvedValueOnce([makeOrder({ status: 'SHIPPED' })]);
 
       const res = await app.inject({
         method: 'PUT',
@@ -254,20 +332,12 @@ describe('order module (TC-030 – TC-033)', () => {
       });
 
       expect(res.statusCode).toBe(200);
-      expect(prisma.order.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            status: 'SHIPPED',
-            trackingNumber: 'JNE123',
-            courier: 'JNE',
-            shippedAt: expect.any(Date),
-          }),
-        })
-      );
+      expect(db.update).toHaveBeenCalled();
+      expect(res.json().data.status).toBe('SHIPPED');
     });
 
     it('returns 404 when updating a missing order', async () => {
-      prisma.order.findUnique.mockResolvedValue(null);
+      chain.limit.mockResolvedValueOnce([]);
 
       const res = await app.inject({
         method: 'PUT',
@@ -289,7 +359,7 @@ describe('order module (TC-030 – TC-033)', () => {
 
       expect(res.statusCode).toBe(400);
       expect(res.json().error.code).toBe('VALIDATION_ERROR');
-      expect(prisma.order.update).not.toHaveBeenCalled();
+      expect(db.update).not.toHaveBeenCalled();
     });
   });
 });

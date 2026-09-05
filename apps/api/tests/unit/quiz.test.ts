@@ -1,11 +1,55 @@
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
 import Fastify, { type FastifyInstance } from 'fastify';
 
-const prisma = vi.hoisted(() => ({
-  product: { findMany: vi.fn() },
-}));
+const { chain, returningResult, db } = vi.hoisted(() => {
+  const chain = {
+    from: vi.fn(),
+    where: vi.fn(),
+    orderBy: vi.fn(),
+    limit: vi.fn(),
+    offset: vi.fn(),
+    innerJoin: vi.fn(),
+    leftJoin: vi.fn(),
+    groupBy: vi.fn(),
+  };
+  chain.from.mockReturnValue(chain);
+  chain.where.mockReturnValue(chain);
+  chain.orderBy.mockReturnValue(chain);
+  chain.limit.mockReturnValue(chain);
+  chain.offset.mockReturnValue(chain);
+  chain.innerJoin.mockReturnValue(chain);
+  chain.leftJoin.mockReturnValue(chain);
+  chain.groupBy.mockReturnValue(chain);
 
-vi.mock('@/config/database', () => ({ default: prisma, prisma }));
+  const returningResult = vi.fn();
+
+  const db = {
+    select: vi.fn().mockReturnValue(chain),
+    insert: vi.fn().mockReturnValue({
+      values: vi.fn().mockReturnValue({
+        returning: returningResult,
+      }),
+    }),
+    update: vi.fn().mockReturnValue({
+      set: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          returning: returningResult,
+        }),
+      }),
+    }),
+    delete: vi.fn().mockReturnValue({
+      where: vi.fn(),
+    }),
+    execute: vi.fn(),
+    query: {
+      products: { findMany: vi.fn() },
+    },
+  };
+
+  return { chain, returningResult, db };
+});
+
+vi.mock('@/db', () => ({ db }));
 
 import { quizRoutes } from '@/modules/quiz/quiz.routes';
 import { calculateRecommendations, QUIZ_OPTIONS } from '@/modules/quiz/quiz.schema';
@@ -35,7 +79,31 @@ describe('quiz module', () => {
   });
 
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
+    chain.from.mockReturnValue(chain);
+    chain.where.mockReturnValue(chain);
+    chain.orderBy.mockReturnValue(chain);
+    chain.limit.mockReturnValue(chain);
+    chain.offset.mockReturnValue(chain);
+    chain.innerJoin.mockReturnValue(chain);
+    chain.leftJoin.mockReturnValue(chain);
+    chain.groupBy.mockReturnValue(chain);
+    db.select.mockReturnValue(chain);
+    db.insert.mockReturnValue({
+      values: vi.fn().mockReturnValue({
+        returning: returningResult,
+      }),
+    });
+    db.update.mockReturnValue({
+      set: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          returning: returningResult,
+        }),
+      }),
+    });
+    db.delete.mockReturnValue({
+      where: vi.fn(),
+    });
   });
 
   // ==================== ROUTES ====================
@@ -52,10 +120,13 @@ describe('quiz module', () => {
 
   describe('POST /api/quiz/submit', () => {
     it('returns scored recommendations for valid answers', async () => {
-      prisma.product.findMany.mockResolvedValue([
+      // Route: db.query.products.findMany({where, with})
+      // Then: db.select({...}).from(reviews).where(inArray(...)).groupBy(reviews.productId)
+      db.query.products.findMany.mockResolvedValueOnce([
         makeProduct({ id: 'match', occasions: ['daily'], notes: ['citrus'], price: 200000 }),
         makeProduct({ id: 'nomatch', occasions: [], notes: ['rose'], price: 900000 }),
       ]);
+      chain.groupBy.mockResolvedValueOnce([]);
 
       const res = await app.inject({
         method: 'POST',

@@ -1,9 +1,10 @@
 import { FastifyInstance } from 'fastify';
-import prisma from '../../config/database';
+import { db } from '../../db';
+import { orders, orderItems, products, users, subscriptions } from '../../db/schema';
+import { eq, and, inArray, gte, lte, gt, sql, count } from 'drizzle-orm';
 import { requireAdmin } from '../../middleware/auth';
 
 export async function reportRoutes(app: FastifyInstance) {
-  // ==================== DASHBOARD STATS ====================
   app.get('/dashboard', {
     preHandler: [requireAdmin],
   }, async (request, reply) => {
@@ -11,85 +12,83 @@ export async function reportRoutes(app: FastifyInstance) {
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
 
+    const paidStatuses = ['PAID', 'PROCESSING', 'SHIPPED', 'DELIVERED'];
+
     const [
-      totalOrders,
-      ordersThisMonth,
-      totalProducts,
-      totalUsers,
-      totalSubscriptions,
-      revenueThisMonth,
-      recentOrders,
-      topProducts,
+      totalOrdersResult,
+      ordersThisMonthResult,
+      totalProductsResult,
+      totalUsersResult,
+      totalSubscriptionsResult,
+      revenueThisMonthResult,
+      recentOrdersList,
+      topProductsResult,
     ] = await Promise.all([
-      // Total orders
-      prisma.order.count(),
-      // Orders this month
-      prisma.order.count({
-        where: { createdAt: { gte: startOfMonth } },
-      }),
-      // Total products
-      prisma.product.count({ where: { status: 'ACTIVE' } }),
-      // Total users
-      prisma.user.count(),
-      // Active subscriptions
-      prisma.subscription.count({ where: { status: 'ACTIVE' } }),
-      // Revenue this month
-      prisma.order.aggregate({
-        where: {
-          status: { in: ['PAID', 'PROCESSING', 'SHIPPED', 'DELIVERED'] },
-          createdAt: { gte: startOfMonth },
+      db.select({ count: count() }).from(orders),
+      db.select({ count: count() }).from(orders).where(gte(orders.createdAt, startOfMonth)),
+      db.select({ count: count() }).from(products).where(eq(products.status, 'ACTIVE')),
+      db.select({ count: count() }).from(users),
+      db.select({ count: count() }).from(subscriptions).where(eq(subscriptions.status, 'ACTIVE')),
+      db.select({ total: sql`sum(${orders.totalAmount})::numeric` })
+        .from(orders)
+        .where(and(inArray(orders.status, paidStatuses as any), gte(orders.createdAt, startOfMonth))),
+      db.select({
+        id: orders.id,
+        orderNumber: orders.orderNumber,
+        status: orders.status,
+        totalAmount: orders.totalAmount,
+        createdAt: orders.createdAt,
+        user: {
+          name: users.name,
+          email: users.email,
         },
-        _sum: { totalAmount: true },
-      }),
-      // Recent orders
-      prisma.order.findMany({
-        orderBy: { createdAt: 'desc' },
-        take: 10,
-        include: {
-          user: { select: { name: true, email: true } },
-          items: { select: { quantity: true } },
-        },
-      }),
-      // Top products by order count
-      prisma.orderItem.groupBy({
-        by: ['productId'],
-        _count: { id: true },
-        _sum: { quantity: true },
-        orderBy: { _count: { id: 'desc' } },
-        take: 5,
-      }),
+      })
+        .from(orders)
+        .innerJoin(users, eq(orders.userId, users.id))
+        .orderBy(sql`${orders.createdAt} DESC`)
+        .limit(10),
+      db.select({
+        productId: orderItems.productId,
+        count: count(),
+        totalQty: sql`sum(${orderItems.quantity})`,
+      })
+        .from(orderItems)
+        .groupBy(orderItems.productId)
+        .orderBy(sql`count(*) DESC`)
+        .limit(5),
     ]);
 
-    // Resolve product names for top products
-    const topProductIds = topProducts.map((tp) => tp.productId);
-    const topProductDetails = await prisma.product.findMany({
-      where: { id: { in: topProductIds } },
-      select: { id: true, name: true, price: true },
-    });
+    const topProductIds = topProductsResult.map((tp) => tp.productId);
+    const topProductDetails = topProductIds.length > 0
+      ? await db.select({
+          id: products.id,
+          name: products.name,
+          price: products.price,
+        }).from(products).where(inArray(products.id, topProductIds))
+      : [];
     const topProductMap = new Map(topProductDetails.map((p) => [p.id, p]));
 
     return reply.status(200).send({
       success: true,
       data: {
         stats: {
-          totalOrders,
-          ordersThisMonth,
-          totalProducts,
-          totalUsers,
-          totalSubscriptions,
-          revenueThisMonth: Number(revenueThisMonth._sum.totalAmount || 0),
+          totalOrders: totalOrdersResult[0]?.count || 0,
+          ordersThisMonth: ordersThisMonthResult[0]?.count || 0,
+          totalProducts: totalProductsResult[0]?.count || 0,
+          totalUsers: totalUsersResult[0]?.count || 0,
+          totalSubscriptions: totalSubscriptionsResult[0]?.count || 0,
+          revenueThisMonth: Number(revenueThisMonthResult[0]?.total || 0),
         },
-        recentOrders,
-        topProducts: topProducts.map((tp) => ({
+        recentOrders: recentOrdersList,
+        topProducts: topProductsResult.map((tp) => ({
           ...topProductMap.get(tp.productId),
-          orderCount: tp._count.id,
-          totalSold: tp._sum.quantity,
+          orderCount: tp.count,
+          totalSold: tp.totalQty,
         })),
       },
     });
   });
 
-  // ==================== SALES REPORT (BY PERIOD) ====================
   app.get('/sales', {
     preHandler: [requireAdmin],
   }, async (request, reply) => {
@@ -102,23 +101,20 @@ export async function reportRoutes(app: FastifyInstance) {
     const start = startDate ? new Date(startDate) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     const end = endDate ? new Date(endDate) : new Date();
 
-    const orders = await prisma.order.findMany({
-      where: {
-        status: { in: ['PAID', 'PROCESSING', 'SHIPPED', 'DELIVERED'] },
-        createdAt: { gte: start, lte: end },
-      },
-      select: {
-        createdAt: true,
-        totalAmount: true,
-        status: true,
-      },
-      orderBy: { createdAt: 'asc' },
-    });
+    const paidStatuses = ['PAID', 'PROCESSING', 'SHIPPED', 'DELIVERED'];
 
-    // Group by period
+    const orderList = await db.select({
+      createdAt: orders.createdAt,
+      totalAmount: orders.totalAmount,
+      status: orders.status,
+    })
+      .from(orders)
+      .where(and(inArray(orders.status, paidStatuses as any), gte(orders.createdAt, start), lte(orders.createdAt, end)))
+      .orderBy(sql`${orders.createdAt} ASC`);
+
     const grouped: Record<string, { count: number; revenue: number }> = {};
 
-    orders.forEach((order) => {
+    orderList.forEach((order) => {
       let key: string;
       const date = new Date(order.createdAt);
 
@@ -139,7 +135,6 @@ export async function reportRoutes(app: FastifyInstance) {
       grouped[key].revenue += Number(order.totalAmount);
     });
 
-    // Convert to array
     const data = Object.entries(grouped).map(([date, values]) => ({
       date,
       ...values,
@@ -158,51 +153,60 @@ export async function reportRoutes(app: FastifyInstance) {
     });
   });
 
-  // ==================== PRODUCT REPORT ====================
   app.get('/products', {
     preHandler: [requireAdmin],
   }, async (request, reply) => {
     const [
-      totalProducts,
-      activeProducts,
-      lowStock,
-      outOfStock,
-      topSelling,
+      totalProductsResult,
+      activeProductsResult,
+      lowStockResult,
+      outOfStockResult,
+      topSellingResult,
     ] = await Promise.all([
-      prisma.product.count(),
-      prisma.product.count({ where: { status: 'ACTIVE' } }),
-      prisma.product.count({ where: { status: 'ACTIVE', stock: { lte: 5, gt: 0 } } }),
-      prisma.product.count({ where: { stock: 0 } }),
-      prisma.orderItem.groupBy({
-        by: ['productId'],
-        _sum: { quantity: true },
-        _count: { id: true },
-        orderBy: { _sum: { quantity: 'desc' } },
-        take: 10,
-      }),
+      db.select({ count: count() }).from(products),
+      db.select({ count: count() }).from(products).where(eq(products.status, 'ACTIVE')),
+      db.select({ count: count() }).from(products).where(and(eq(products.status, 'ACTIVE'), lte(products.stock, 5), gt(products.stock, 0))),
+      db.select({ count: count() }).from(products).where(eq(products.stock, 0)),
+      db.select({
+        productId: orderItems.productId,
+        totalQty: sql`sum(${orderItems.quantity})`,
+        count: count(),
+      })
+        .from(orderItems)
+        .groupBy(orderItems.productId)
+        .orderBy(sql`sum(${orderItems.quantity}) DESC`)
+        .limit(10),
     ]);
 
-    const topProductIds = topSelling.map((tp) => tp.productId);
-    const topProductDetails = await prisma.product.findMany({
-      where: { id: { in: topProductIds } },
-      select: { id: true, name: true, price: true, stock: true },
-    });
+    const topProductIds = topSellingResult.map((tp) => tp.productId);
+    const topProductDetails = topProductIds.length > 0
+      ? await db.select({
+          id: products.id,
+          name: products.name,
+          price: products.price,
+          stock: products.stock,
+        }).from(products).where(inArray(products.id, topProductIds))
+      : [];
     const topProductMap = new Map(topProductDetails.map((p) => [p.id, p]));
 
     return reply.status(200).send({
       success: true,
       data: {
-        stats: { totalProducts, activeProducts, lowStock, outOfStock },
-        topSelling: topSelling.map((tp) => ({
+        stats: {
+          totalProducts: totalProductsResult[0]?.count || 0,
+          activeProducts: activeProductsResult[0]?.count || 0,
+          lowStock: lowStockResult[0]?.count || 0,
+          outOfStock: outOfStockResult[0]?.count || 0,
+        },
+        topSelling: topSellingResult.map((tp) => ({
           ...topProductMap.get(tp.productId),
-          totalSold: tp._sum.quantity,
-          orderCount: tp._count.id,
+          totalSold: tp.totalQty,
+          orderCount: tp.count,
         })),
       },
     });
   });
 
-  // ==================== USER REPORT ====================
   app.get('/users', {
     preHandler: [requireAdmin],
   }, async (request, reply) => {
@@ -210,28 +214,31 @@ export async function reportRoutes(app: FastifyInstance) {
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
     const [
-      totalUsers,
-      newUsersThisMonth,
-      usersWithOrders,
-      usersWithSubscriptions,
+      totalUsersResult,
+      newUsersThisMonthResult,
     ] = await Promise.all([
-      prisma.user.count(),
-      prisma.user.count({ where: { createdAt: { gte: startOfMonth } } }),
-      prisma.user.count({
-        where: { orders: { some: {} } },
-      }),
-      prisma.user.count({
-        where: { subscriptions: { some: { status: 'ACTIVE' } } },
-      }),
+      db.select({ count: count() }).from(users),
+      db.select({ count: count() }).from(users).where(gte(users.createdAt, startOfMonth)),
     ]);
+
+    // Users with orders (count distinct user_ids in orders)
+    const usersWithOrdersResult = await db.select({ count: sql`count(distinct ${orders.userId})` }).from(orders);
+
+    // Users with active subscriptions
+    const usersWithSubscriptionsResult = await db.select({ count: sql`count(distinct ${subscriptions.userId})` })
+      .from(subscriptions)
+      .where(eq(subscriptions.status, 'ACTIVE'));
+
+    const totalUsers = Number(totalUsersResult[0]?.count || 0);
+    const usersWithOrders = Number(usersWithOrdersResult[0]?.count || 0);
 
     return reply.status(200).send({
       success: true,
       data: {
         totalUsers,
-        newUsersThisMonth,
+        newUsersThisMonth: Number(newUsersThisMonthResult[0]?.count || 0),
         usersWithOrders,
-        usersWithSubscriptions,
+        usersWithSubscriptions: Number(usersWithSubscriptionsResult[0]?.count || 0),
         conversionRate: totalUsers > 0 ? (usersWithOrders / totalUsers) * 100 : 0,
       },
     });

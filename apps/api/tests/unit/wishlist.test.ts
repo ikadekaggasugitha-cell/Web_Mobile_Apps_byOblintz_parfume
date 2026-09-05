@@ -2,18 +2,36 @@ import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vites
 import Fastify, { type FastifyInstance } from 'fastify';
 import jwt from '@fastify/jwt';
 
-const prisma = vi.hoisted(() => ({
-  wishlist: {
-    findMany: vi.fn(),
-    count: vi.fn(),
-    findUnique: vi.fn(),
-    create: vi.fn(),
-    delete: vi.fn(),
-  },
-  product: { findUnique: vi.fn() },
-}));
+const { chain, returningResult, db } = vi.hoisted(() => {
+  const chain: any = {};
+  chain.from = vi.fn().mockReturnValue(chain);
+  chain.where = vi.fn().mockReturnValue(chain);
+  chain.orderBy = vi.fn().mockReturnValue(chain);
+  chain.limit = vi.fn().mockReturnValue(chain);
+  chain.offset = vi.fn().mockReturnValue(chain);
+  chain.innerJoin = vi.fn().mockReturnValue(chain);
+  chain.leftJoin = vi.fn().mockReturnValue(chain);
+  chain.groupBy = vi.fn().mockReturnValue(chain);
 
-vi.mock('@/config/database', () => ({ default: prisma, prisma }));
+  const returningResult = vi.fn();
+
+  const db = {
+    select: vi.fn().mockReturnValue(chain),
+    insert: vi.fn().mockReturnValue({
+      values: vi.fn().mockReturnValue({ returning: returningResult }),
+    }),
+    update: vi.fn().mockReturnValue({
+      set: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({ returning: returningResult }),
+      }),
+    }),
+    delete: vi.fn().mockReturnValue({ where: vi.fn() }),
+  };
+
+  return { chain, returningResult, db };
+});
+
+vi.mock('@/db', () => ({ db }));
 
 import { wishlistRoutes } from '@/modules/wishlist/wishlist.routes';
 
@@ -24,10 +42,8 @@ function authHeader(app: FastifyInstance) {
   return { authorization: `Bearer ${app.jwt.sign({ id: USER_ID })}` };
 }
 
-const wishlistKey = { userId_productId: { userId: USER_ID, productId: PID } };
-
 function makeEntry() {
-  return { id: 'wl-1', userId: USER_ID, productId: PID };
+  return { id: 'wl-1', userId: USER_ID, productId: PID, createdAt: new Date() };
 }
 
 describe('wishlist module', () => {
@@ -46,13 +62,27 @@ describe('wishlist module', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    chain.from.mockReturnValue(chain);
+    chain.where.mockReturnValue(chain);
+    chain.orderBy.mockReturnValue(chain);
+    chain.limit.mockReturnValue(chain);
+    chain.offset.mockReturnValue(chain);
+    chain.innerJoin.mockReturnValue(chain);
+    chain.leftJoin.mockReturnValue(chain);
+    chain.groupBy.mockReturnValue(chain);
   });
 
-  // ==================== GET WISHLIST ====================
   describe('GET /api/wishlist', () => {
     it('lists the user wishlist with pagination', async () => {
-      prisma.wishlist.findMany.mockResolvedValue([makeEntry()]);
-      prisma.wishlist.count.mockResolvedValue(1);
+      // Route does: Promise.all([
+      //   db.select({...}).from(wishlists).innerJoin(products).leftJoin(categories).where().orderBy().limit().offset(),
+      //   db.select({count}).from(wishlists).where(),
+      // ])
+      // Then a separate count query for reviews: db.select({productId, count}).from(reviews).where().groupBy()
+      chain.where.mockReturnValueOnce(chain);            // query1 .where → chain
+      chain.offset.mockResolvedValueOnce([{ ...makeEntry(), productName: 'Test', productSlug: 'test', productPrice: 100000, productComparePrice: null, productImages: [], productStatus: 'ACTIVE', categoryName: 'Floral' }]);
+      chain.where.mockResolvedValueOnce([{ count: 1 }]); // query2 .where → data (terminal)
+      chain.groupBy.mockResolvedValueOnce([]);             // review count .groupBy → data (terminal)
 
       const res = await app.inject({ method: 'GET', url: '/api/wishlist', headers: authHeader(app) });
 
@@ -68,12 +98,16 @@ describe('wishlist module', () => {
     });
   });
 
-  // ==================== ADD ====================
   describe('POST /api/wishlist/:productId', () => {
     it('adds a product to the wishlist', async () => {
-      prisma.product.findUnique.mockResolvedValue({ id: PID, status: 'ACTIVE' });
-      prisma.wishlist.findUnique.mockResolvedValue(null);
-      prisma.wishlist.create.mockResolvedValue(makeEntry());
+      // 1st query: check product exists
+      chain.limit.mockResolvedValueOnce([{ id: PID, status: 'ACTIVE' }]);
+      // 2nd query: check already wishlisted
+      chain.limit.mockResolvedValueOnce([]);
+      // insert returning
+      returningResult.mockResolvedValueOnce([makeEntry()]);
+      // fetch with product data
+      chain.limit.mockResolvedValueOnce([{ ...makeEntry(), productName: 'Test', productSlug: 'test', productPrice: 100000, productImages: [] }]);
 
       const res = await app.inject({
         method: 'POST',
@@ -82,13 +116,11 @@ describe('wishlist module', () => {
       });
 
       expect(res.statusCode).toBe(201);
-      expect(prisma.wishlist.create).toHaveBeenCalledWith(
-        expect.objectContaining({ data: expect.objectContaining({ userId: USER_ID, productId: PID }) })
-      );
+      expect(db.insert).toHaveBeenCalled();
     });
 
     it('returns 404 when the product does not exist', async () => {
-      prisma.product.findUnique.mockResolvedValue(null);
+      chain.limit.mockResolvedValueOnce([]);
 
       const res = await app.inject({
         method: 'POST',
@@ -101,8 +133,10 @@ describe('wishlist module', () => {
     });
 
     it('returns 409 when the product is already wishlisted', async () => {
-      prisma.product.findUnique.mockResolvedValue({ id: PID, status: 'ACTIVE' });
-      prisma.wishlist.findUnique.mockResolvedValue(makeEntry());
+      // product exists
+      chain.limit.mockResolvedValueOnce([{ id: PID, status: 'ACTIVE' }]);
+      // already wishlisted
+      chain.limit.mockResolvedValueOnce([makeEntry()]);
 
       const res = await app.inject({
         method: 'POST',
@@ -115,11 +149,9 @@ describe('wishlist module', () => {
     });
   });
 
-  // ==================== REMOVE ====================
   describe('DELETE /api/wishlist/:productId', () => {
     it('removes an existing wishlist entry', async () => {
-      prisma.wishlist.findUnique.mockResolvedValue(makeEntry());
-      prisma.wishlist.delete.mockResolvedValue(makeEntry());
+      chain.limit.mockResolvedValueOnce([makeEntry()]);
 
       const res = await app.inject({
         method: 'DELETE',
@@ -128,11 +160,11 @@ describe('wishlist module', () => {
       });
 
       expect(res.statusCode).toBe(200);
-      expect(prisma.wishlist.delete).toHaveBeenCalledWith({ where: wishlistKey });
+      expect(db.delete).toHaveBeenCalled();
     });
 
     it('returns 404 when the entry is not present', async () => {
-      prisma.wishlist.findUnique.mockResolvedValue(null);
+      chain.limit.mockResolvedValueOnce([]);
 
       const res = await app.inject({
         method: 'DELETE',
@@ -144,10 +176,9 @@ describe('wishlist module', () => {
     });
   });
 
-  // ==================== CHECK ====================
   describe('GET /api/wishlist/check/:productId', () => {
     it('reports true when the product is wishlisted', async () => {
-      prisma.wishlist.findUnique.mockResolvedValue(makeEntry());
+      chain.limit.mockResolvedValueOnce([makeEntry()]);
 
       const res = await app.inject({
         method: 'GET',
@@ -160,7 +191,7 @@ describe('wishlist module', () => {
     });
 
     it('reports false when the product is not wishlisted', async () => {
-      prisma.wishlist.findUnique.mockResolvedValue(null);
+      chain.limit.mockResolvedValueOnce([]);
 
       const res = await app.inject({
         method: 'GET',
@@ -173,12 +204,12 @@ describe('wishlist module', () => {
     });
   });
 
-  // ==================== TOGGLE ====================
   describe('POST /api/wishlist/toggle/:productId', () => {
     it('adds the product when it is not yet wishlisted (201)', async () => {
-      prisma.product.findUnique.mockResolvedValue({ id: PID, status: 'ACTIVE' });
-      prisma.wishlist.findUnique.mockResolvedValue(null);
-      prisma.wishlist.create.mockResolvedValue(makeEntry());
+      // product exists
+      chain.limit.mockResolvedValueOnce([{ id: PID, status: 'ACTIVE' }]);
+      // not wishlisted
+      chain.limit.mockResolvedValueOnce([]);
 
       const res = await app.inject({
         method: 'POST',
@@ -188,13 +219,14 @@ describe('wishlist module', () => {
 
       expect(res.statusCode).toBe(201);
       expect(res.json().data.isWishlisted).toBe(true);
-      expect(prisma.wishlist.create).toHaveBeenCalled();
+      expect(db.insert).toHaveBeenCalled();
     });
 
     it('removes the product when it is already wishlisted (200)', async () => {
-      prisma.product.findUnique.mockResolvedValue({ id: PID, status: 'ACTIVE' });
-      prisma.wishlist.findUnique.mockResolvedValue(makeEntry());
-      prisma.wishlist.delete.mockResolvedValue(makeEntry());
+      // product exists
+      chain.limit.mockResolvedValueOnce([{ id: PID, status: 'ACTIVE' }]);
+      // already wishlisted
+      chain.limit.mockResolvedValueOnce([makeEntry()]);
 
       const res = await app.inject({
         method: 'POST',
@@ -204,11 +236,11 @@ describe('wishlist module', () => {
 
       expect(res.statusCode).toBe(200);
       expect(res.json().data.isWishlisted).toBe(false);
-      expect(prisma.wishlist.delete).toHaveBeenCalled();
+      expect(db.delete).toHaveBeenCalled();
     });
 
     it('returns 404 when toggling a non-existent product', async () => {
-      prisma.product.findUnique.mockResolvedValue(null);
+      chain.limit.mockResolvedValueOnce([]);
 
       const res = await app.inject({
         method: 'POST',

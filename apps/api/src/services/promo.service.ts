@@ -1,4 +1,6 @@
-import prisma from '../config/database';
+import { db } from '../db';
+import { promoCodes } from '../db/schema';
+import { eq } from 'drizzle-orm';
 
 export interface PromoValidationResult {
   valid: boolean;
@@ -27,9 +29,10 @@ export async function validatePromoCode(
   subtotal: number,
   shippingFee: number = 0
 ): Promise<PromoValidationResult> {
-  const promo = await prisma.promoCode.findUnique({
-    where: { code: code.toUpperCase() },
-  });
+  const [promo] = await db.select()
+    .from(promoCodes)
+    .where(eq(promoCodes.code, code.toUpperCase()))
+    .limit(1);
 
   if (!promo) {
     return { valid: false, error: 'Kode promo tidak ditemukan', errorCode: 'NOT_FOUND' };

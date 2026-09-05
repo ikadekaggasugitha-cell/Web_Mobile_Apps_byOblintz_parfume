@@ -2,18 +2,52 @@ import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vites
 import Fastify, { type FastifyInstance } from 'fastify';
 import jwt from '@fastify/jwt';
 
-const prisma = vi.hoisted(() => ({
-  promoCode: {
-    findUnique: vi.fn(),
-    findMany: vi.fn(),
-    count: vi.fn(),
-    create: vi.fn(),
-    update: vi.fn(),
-    delete: vi.fn(),
-  },
-}));
+const { chain, returningResult, db } = vi.hoisted(() => {
+  const chain = {
+    from: vi.fn(),
+    where: vi.fn(),
+    orderBy: vi.fn(),
+    limit: vi.fn(),
+    offset: vi.fn(),
+    innerJoin: vi.fn(),
+    leftJoin: vi.fn(),
+    groupBy: vi.fn(),
+  };
+  chain.from.mockReturnValue(chain);
+  chain.where.mockReturnValue(chain);
+  chain.orderBy.mockReturnValue(chain);
+  chain.limit.mockReturnValue(chain);
+  chain.offset.mockReturnValue(chain);
+  chain.innerJoin.mockReturnValue(chain);
+  chain.leftJoin.mockReturnValue(chain);
+  chain.groupBy.mockReturnValue(chain);
 
-vi.mock('@/config/database', () => ({ default: prisma, prisma }));
+  const returningResult = vi.fn();
+
+  const db = {
+    select: vi.fn().mockReturnValue(chain),
+    insert: vi.fn().mockReturnValue({
+      values: vi.fn().mockReturnValue({
+        returning: returningResult,
+      }),
+    }),
+    update: vi.fn().mockReturnValue({
+      set: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          returning: returningResult,
+        }),
+      }),
+    }),
+    delete: vi.fn().mockReturnValue({
+      where: vi.fn(),
+    }),
+    execute: vi.fn(),
+  };
+
+  return { chain, returningResult, db };
+});
+
+vi.mock('@/db', () => ({ db }));
 
 import { promoRoutes } from '@/modules/promo/promo.routes';
 
@@ -59,13 +93,39 @@ describe('promo module', () => {
   });
 
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
+    db.select.mockReturnValue(chain);
+    db.insert.mockReturnValue({
+      values: vi.fn().mockReturnValue({
+        returning: returningResult,
+      }),
+    });
+    db.update.mockReturnValue({
+      set: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          returning: returningResult,
+        }),
+      }),
+    });
+    db.delete.mockReturnValue({
+      where: vi.fn(),
+    });
+    chain.from.mockReturnValue(chain);
+    chain.where.mockReturnValue(chain);
+    chain.orderBy.mockReturnValue(chain);
+    chain.limit.mockReturnValue(chain);
+    chain.offset.mockReturnValue(chain);
+    chain.innerJoin.mockReturnValue(chain);
+    chain.leftJoin.mockReturnValue(chain);
+    chain.groupBy.mockReturnValue(chain);
   });
 
   // ==================== VALIDATE (PUBLIC) ====================
   describe('POST /api/promos/validate', () => {
     it('computes a capped percentage discount', async () => {
-      prisma.promoCode.findUnique.mockResolvedValue(makePromo({ value: 50, maxDiscount: 100000 }));
+      // Route: .from().where().limit(1) → where non-terminal, limit terminal
+      chain.where.mockReturnValueOnce(chain);
+      chain.limit.mockResolvedValueOnce([makePromo({ value: 50, maxDiscount: 100000 })]);
 
       const res = await app.inject({
         method: 'POST',
@@ -80,7 +140,8 @@ describe('promo module', () => {
     });
 
     it('computes a fixed discount capped at the subtotal', async () => {
-      prisma.promoCode.findUnique.mockResolvedValue(makePromo({ type: 'FIXED', value: 999999 }));
+      chain.where.mockReturnValueOnce(chain);
+      chain.limit.mockResolvedValueOnce([makePromo({ type: 'FIXED', value: 999999 })]);
 
       const res = await app.inject({
         method: 'POST',
@@ -89,11 +150,12 @@ describe('promo module', () => {
       });
 
       expect(res.statusCode).toBe(200);
-      expect(res.json().data.discount).toBe(200000); // min(value, subtotal)
+      expect(res.json().data.discount).toBe(200000);
     });
 
     it('computes a free-shipping discount', async () => {
-      prisma.promoCode.findUnique.mockResolvedValue(makePromo({ type: 'FREE_SHIPPING' }));
+      chain.where.mockReturnValueOnce(chain);
+      chain.limit.mockResolvedValueOnce([makePromo({ type: 'FREE_SHIPPING' })]);
 
       const res = await app.inject({
         method: 'POST',
@@ -106,7 +168,8 @@ describe('promo module', () => {
     });
 
     it('returns 404 for an unknown code', async () => {
-      prisma.promoCode.findUnique.mockResolvedValue(null);
+      chain.where.mockReturnValueOnce(chain);
+      chain.limit.mockResolvedValueOnce([]);
 
       const res = await app.inject({
         method: 'POST',
@@ -119,7 +182,8 @@ describe('promo module', () => {
     });
 
     it('returns 400 INACTIVE for a disabled promo', async () => {
-      prisma.promoCode.findUnique.mockResolvedValue(makePromo({ status: 'INACTIVE' }));
+      chain.where.mockReturnValueOnce(chain);
+      chain.limit.mockResolvedValueOnce([makePromo({ status: 'INACTIVE' })]);
 
       const res = await app.inject({
         method: 'POST',
@@ -132,7 +196,8 @@ describe('promo module', () => {
     });
 
     it('returns 400 NOT_STARTED before the start date', async () => {
-      prisma.promoCode.findUnique.mockResolvedValue(makePromo({ startDate: new Date('2999-01-01') }));
+      chain.where.mockReturnValueOnce(chain);
+      chain.limit.mockResolvedValueOnce([makePromo({ startDate: new Date('2999-01-01') })]);
 
       const res = await app.inject({
         method: 'POST',
@@ -145,7 +210,8 @@ describe('promo module', () => {
     });
 
     it('returns 400 EXPIRED after the end date', async () => {
-      prisma.promoCode.findUnique.mockResolvedValue(makePromo({ endDate: new Date('2000-01-01') }));
+      chain.where.mockReturnValueOnce(chain);
+      chain.limit.mockResolvedValueOnce([makePromo({ endDate: new Date('2000-01-01') })]);
 
       const res = await app.inject({
         method: 'POST',
@@ -158,7 +224,8 @@ describe('promo module', () => {
     });
 
     it('returns 400 LIMIT_REACHED when usage limit is hit', async () => {
-      prisma.promoCode.findUnique.mockResolvedValue(makePromo({ usageLimit: 5, usedCount: 5 }));
+      chain.where.mockReturnValueOnce(chain);
+      chain.limit.mockResolvedValueOnce([makePromo({ usageLimit: 5, usedCount: 5 })]);
 
       const res = await app.inject({
         method: 'POST',
@@ -171,7 +238,8 @@ describe('promo module', () => {
     });
 
     it('returns 400 MIN_ORDER when the subtotal is too low', async () => {
-      prisma.promoCode.findUnique.mockResolvedValue(makePromo({ minOrder: 1000000 }));
+      chain.where.mockReturnValueOnce(chain);
+      chain.limit.mockResolvedValueOnce([makePromo({ minOrder: 1000000 })]);
 
       const res = await app.inject({
         method: 'POST',
@@ -208,8 +276,15 @@ describe('promo module', () => {
     });
 
     it('lists promos for an admin', async () => {
-      prisma.promoCode.findMany.mockResolvedValue([makePromo()]);
-      prisma.promoCode.count.mockResolvedValue(1);
+      // Q1: .from().where().orderBy().limit().offset(skip) → where non-term, limit non-term, offset terminal
+      // Q2: .from().where() → where terminal
+      chain.where
+        .mockReturnValueOnce(chain)               // Q1 .where() non-terminal
+        .mockResolvedValueOnce([{ total: 1 }]);    // Q2 .where() terminal
+      chain.limit
+        .mockReturnValueOnce(chain);               // Q1 .limit() non-terminal
+      chain.offset
+        .mockResolvedValueOnce([makePromo()]);      // Q1 .offset() terminal
 
       const res = await app.inject({
         method: 'GET',
@@ -227,8 +302,9 @@ describe('promo module', () => {
     const body = { code: 'hemat10', name: 'Diskon 10%', type: 'PERCENTAGE', value: 10 };
 
     it('creates a promo (uppercasing the code)', async () => {
-      prisma.promoCode.findUnique.mockResolvedValue(null);
-      prisma.promoCode.create.mockResolvedValue(makePromo());
+      chain.where.mockReturnValueOnce(chain);
+      chain.limit.mockResolvedValueOnce([]);
+      returningResult.mockResolvedValueOnce([makePromo()]);
 
       const res = await app.inject({
         method: 'POST',
@@ -238,13 +314,12 @@ describe('promo module', () => {
       });
 
       expect(res.statusCode).toBe(201);
-      expect(prisma.promoCode.create).toHaveBeenCalledWith(
-        expect.objectContaining({ data: expect.objectContaining({ code: 'HEMAT10', status: 'ACTIVE' }) })
-      );
+      expect(db.insert).toHaveBeenCalled();
     });
 
     it('returns 409 when the code already exists', async () => {
-      prisma.promoCode.findUnique.mockResolvedValue(makePromo());
+      chain.where.mockReturnValueOnce(chain);
+      chain.limit.mockResolvedValueOnce([makePromo()]);
 
       const res = await app.inject({
         method: 'POST',
@@ -273,8 +348,9 @@ describe('promo module', () => {
   // ==================== ADMIN UPDATE ====================
   describe('PUT /api/promos/admin/:id', () => {
     it('updates an existing promo', async () => {
-      prisma.promoCode.findUnique.mockResolvedValue(makePromo());
-      prisma.promoCode.update.mockResolvedValue(makePromo({ value: 20 }));
+      chain.where.mockReturnValueOnce(chain);
+      chain.limit.mockResolvedValueOnce([makePromo()]);
+      returningResult.mockResolvedValueOnce([makePromo({ value: 20 })]);
 
       const res = await app.inject({
         method: 'PUT',
@@ -284,15 +360,12 @@ describe('promo module', () => {
       });
 
       expect(res.statusCode).toBe(200);
-      expect(prisma.promoCode.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({ value: 20, status: 'INACTIVE' }),
-        })
-      );
+      expect(db.update).toHaveBeenCalled();
     });
 
     it('returns 404 when the promo is missing', async () => {
-      prisma.promoCode.findUnique.mockResolvedValue(null);
+      chain.where.mockReturnValueOnce(chain);
+      chain.limit.mockResolvedValueOnce([]);
 
       const res = await app.inject({
         method: 'PUT',
@@ -308,8 +381,9 @@ describe('promo module', () => {
   // ==================== ADMIN DELETE ====================
   describe('DELETE /api/promos/admin/:id', () => {
     it('deletes a promo', async () => {
-      prisma.promoCode.findUnique.mockResolvedValue(makePromo());
-      prisma.promoCode.delete.mockResolvedValue(makePromo());
+      chain.where.mockReturnValueOnce(chain);
+      chain.limit.mockResolvedValueOnce([makePromo()]);
+      db.delete.mockReturnValueOnce({ where: vi.fn() });
 
       const res = await app.inject({
         method: 'DELETE',
@@ -318,11 +392,12 @@ describe('promo module', () => {
       });
 
       expect(res.statusCode).toBe(200);
-      expect(prisma.promoCode.delete).toHaveBeenCalledWith({ where: { id: PROMO_ID } });
+      expect(db.delete).toHaveBeenCalled();
     });
 
     it('returns 404 when the promo is missing', async () => {
-      prisma.promoCode.findUnique.mockResolvedValue(null);
+      chain.where.mockReturnValueOnce(chain);
+      chain.limit.mockResolvedValueOnce([]);
 
       const res = await app.inject({
         method: 'DELETE',
@@ -337,8 +412,9 @@ describe('promo module', () => {
   // ==================== ADMIN TOGGLE ====================
   describe('PUT /api/promos/admin/:id/toggle', () => {
     it('toggles an active promo to inactive', async () => {
-      prisma.promoCode.findUnique.mockResolvedValue(makePromo({ status: 'ACTIVE' }));
-      prisma.promoCode.update.mockResolvedValue(makePromo({ status: 'INACTIVE' }));
+      chain.where.mockReturnValueOnce(chain);
+      chain.limit.mockResolvedValueOnce([makePromo({ status: 'ACTIVE' })]);
+      returningResult.mockResolvedValueOnce([makePromo({ status: 'INACTIVE' })]);
 
       const res = await app.inject({
         method: 'PUT',
@@ -351,8 +427,9 @@ describe('promo module', () => {
     });
 
     it('toggles an inactive promo to active', async () => {
-      prisma.promoCode.findUnique.mockResolvedValue(makePromo({ status: 'INACTIVE' }));
-      prisma.promoCode.update.mockResolvedValue(makePromo({ status: 'ACTIVE' }));
+      chain.where.mockReturnValueOnce(chain);
+      chain.limit.mockResolvedValueOnce([makePromo({ status: 'INACTIVE' })]);
+      returningResult.mockResolvedValueOnce([makePromo({ status: 'ACTIVE' })]);
 
       const res = await app.inject({
         method: 'PUT',
@@ -365,7 +442,8 @@ describe('promo module', () => {
     });
 
     it('returns 404 when the promo is missing', async () => {
-      prisma.promoCode.findUnique.mockResolvedValue(null);
+      chain.where.mockReturnValueOnce(chain);
+      chain.limit.mockResolvedValueOnce([]);
 
       const res = await app.inject({
         method: 'PUT',

@@ -2,10 +2,51 @@ import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vites
 import Fastify, { type FastifyInstance } from 'fastify';
 import jwt from '@fastify/jwt';
 
-const prisma = vi.hoisted(() => ({
-  product: { findUnique: vi.fn(), findMany: vi.fn() },
-  promoCode: { findUnique: vi.fn() },
-}));
+const { chain, returningResult, db } = vi.hoisted(() => {
+  const chain = {
+    from: vi.fn(),
+    where: vi.fn(),
+    orderBy: vi.fn(),
+    limit: vi.fn(),
+    offset: vi.fn(),
+    innerJoin: vi.fn(),
+    leftJoin: vi.fn(),
+    groupBy: vi.fn(),
+  };
+  chain.from.mockReturnValue(chain);
+  chain.where.mockReturnValue(chain);
+  chain.orderBy.mockReturnValue(chain);
+  chain.limit.mockReturnValue(chain);
+  chain.offset.mockReturnValue(chain);
+  chain.innerJoin.mockReturnValue(chain);
+  chain.leftJoin.mockReturnValue(chain);
+  chain.groupBy.mockReturnValue(chain);
+
+  const returningResult = vi.fn();
+
+  const db = {
+    select: vi.fn().mockReturnValue(chain),
+    insert: vi.fn().mockReturnValue({
+      values: vi.fn().mockReturnValue({
+        returning: returningResult,
+      }),
+    }),
+    update: vi.fn().mockReturnValue({
+      set: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          returning: returningResult,
+        }),
+      }),
+    }),
+    delete: vi.fn().mockReturnValue({
+      where: vi.fn(),
+    }),
+    execute: vi.fn(),
+    transaction: vi.fn(),
+  };
+
+  return { chain, returningResult, db };
+});
 
 const redis = vi.hoisted(() => ({
   get: vi.fn(),
@@ -13,7 +54,7 @@ const redis = vi.hoisted(() => ({
   del: vi.fn(),
 }));
 
-vi.mock('@/config/database', () => ({ default: prisma, prisma }));
+vi.mock('@/db', () => ({ db }));
 vi.mock('@/config/redis', () => ({ redis }));
 
 import { cartRoutes } from '@/modules/cart/cart.routes';
@@ -27,6 +68,18 @@ function authHeader(app: FastifyInstance) {
 
 function cartJson(items: Array<Record<string, unknown>>) {
   return JSON.stringify(items);
+}
+
+function setupChainDefaults() {
+  chain.from.mockReturnValue(chain);
+  chain.where.mockReturnValue(chain);
+  chain.orderBy.mockReturnValue(chain);
+  chain.limit.mockReturnValue(chain);
+  chain.offset.mockReturnValue(chain);
+  chain.innerJoin.mockReturnValue(chain);
+  chain.leftJoin.mockReturnValue(chain);
+  chain.groupBy.mockReturnValue(chain);
+  db.select.mockReturnValue(chain);
 }
 
 describe('cart module (TC-020 – TC-024)', () => {
@@ -44,14 +97,14 @@ describe('cart module (TC-020 – TC-024)', () => {
   });
 
   beforeEach(() => {
-    vi.clearAllMocks();
-    // Lock acquisition + saveCart both use redis.set → 'OK' means lock granted.
+    vi.resetAllMocks();
+    setupChainDefaults();
+
     redis.set.mockResolvedValue('OK');
     redis.del.mockResolvedValue(1);
     redis.get.mockResolvedValue(null);
   });
 
-  // ==================== GET CART ====================
   describe('GET /api/cart', () => {
     it('returns an empty cart summary when nothing is stored', async () => {
       redis.get.mockResolvedValue(null);
@@ -64,8 +117,8 @@ describe('cart module (TC-020 – TC-024)', () => {
 
     it('hydrates stored items with product detail and computes totals', async () => {
       redis.get.mockResolvedValue(cartJson([{ productId: PID, quantity: 2, giftWrap: false, addedAt: 'x' }]));
-      prisma.product.findMany.mockResolvedValue([
-        { id: PID, name: 'Amber', slug: 'amber', price: 250000, comparePrice: null, images: [], stock: 10, category: { name: 'Unisex' } },
+      chain.where.mockResolvedValueOnce([
+        { id: PID, name: 'Amber', slug: 'amber', price: 250000, comparePrice: null, images: [], stock: 10, categoryName: 'Unisex' },
       ]);
 
       const res = await app.inject({ method: 'GET', url: '/api/cart', headers: authHeader(app) });
@@ -82,10 +135,9 @@ describe('cart module (TC-020 – TC-024)', () => {
     });
   });
 
-  // ==================== TC-020: ADD ITEM ====================
   describe('TC-020: POST /api/cart/items', () => {
     it('adds a new item to the cart', async () => {
-      prisma.product.findUnique.mockResolvedValue({ id: PID, stock: 20 });
+      chain.limit.mockResolvedValueOnce([{ id: PID, stock: 20 }]);
       redis.get.mockResolvedValue(null);
 
       const res = await app.inject({
@@ -96,7 +148,7 @@ describe('cart module (TC-020 – TC-024)', () => {
       });
 
       expect(res.statusCode).toBe(200);
-      expect(res.json().data.totalItems).toBe(2); // L1: real total, not hardcoded 0
+      expect(res.json().data.totalItems).toBe(2);
       expect(redis.set).toHaveBeenCalledWith(
         `cart:${USER_ID}`,
         expect.stringContaining(PID),
@@ -106,7 +158,7 @@ describe('cart module (TC-020 – TC-024)', () => {
     });
 
     it('returns 404 when the product does not exist', async () => {
-      prisma.product.findUnique.mockResolvedValue(null);
+      chain.limit.mockResolvedValueOnce([]);
 
       const res = await app.inject({
         method: 'POST',
@@ -120,7 +172,7 @@ describe('cart module (TC-020 – TC-024)', () => {
     });
 
     it('returns 400 INSUFFICIENT_STOCK when quantity exceeds stock', async () => {
-      prisma.product.findUnique.mockResolvedValue({ id: PID, stock: 1 });
+      chain.limit.mockResolvedValueOnce([{ id: PID, stock: 1 }]);
 
       const res = await app.inject({
         method: 'POST',
@@ -134,8 +186,8 @@ describe('cart module (TC-020 – TC-024)', () => {
     });
 
     it('returns 429 when the cart lock cannot be acquired', async () => {
-      prisma.product.findUnique.mockResolvedValue({ id: PID, stock: 20 });
-      redis.set.mockResolvedValueOnce(null); // lock fails
+      chain.limit.mockResolvedValueOnce([{ id: PID, stock: 20 }]);
+      redis.set.mockResolvedValueOnce(null);
 
       const res = await app.inject({
         method: 'POST',
@@ -161,7 +213,7 @@ describe('cart module (TC-020 – TC-024)', () => {
     });
 
     it('merges quantity when the item already exists in the cart', async () => {
-      prisma.product.findUnique.mockResolvedValue({ id: PID, stock: 20 });
+      chain.limit.mockResolvedValueOnce([{ id: PID, stock: 20 }]);
       redis.get.mockResolvedValue(cartJson([{ productId: PID, quantity: 2, giftWrap: false, addedAt: 'x' }]));
 
       const res = await app.inject({
@@ -172,14 +224,14 @@ describe('cart module (TC-020 – TC-024)', () => {
       });
 
       expect(res.statusCode).toBe(200);
-      expect(res.json().data.totalItems).toBe(5); // 2 existing + 3 added
+      expect(res.json().data.totalItems).toBe(5);
       const saved = JSON.parse(redis.set.mock.calls.find((c) => c[0] === `cart:${USER_ID}`)![1] as string);
       expect(saved[0].quantity).toBe(5);
       expect(saved[0].giftWrap).toBe(true);
     });
 
     it('returns 400 MAX_QUANTITY when the merged quantity exceeds 10', async () => {
-      prisma.product.findUnique.mockResolvedValue({ id: PID, stock: 20 });
+      chain.limit.mockResolvedValueOnce([{ id: PID, stock: 20 }]);
       redis.get.mockResolvedValue(cartJson([{ productId: PID, quantity: 9, giftWrap: false, addedAt: 'x' }]));
 
       const res = await app.inject({
@@ -194,10 +246,9 @@ describe('cart module (TC-020 – TC-024)', () => {
     });
   });
 
-  // ==================== TC-021: UPDATE QUANTITY ====================
   describe('TC-021: PUT /api/cart/items/:productId', () => {
     it('updates the quantity of an existing item', async () => {
-      prisma.product.findUnique.mockResolvedValue({ id: PID, stock: 20 });
+      chain.limit.mockResolvedValueOnce([{ id: PID, stock: 20 }]);
       redis.get.mockResolvedValue(cartJson([{ productId: PID, quantity: 1, giftWrap: false, addedAt: 'x' }]));
 
       const res = await app.inject({
@@ -212,7 +263,7 @@ describe('cart module (TC-020 – TC-024)', () => {
     });
 
     it('returns 404 when the item is not in the cart', async () => {
-      prisma.product.findUnique.mockResolvedValue({ id: PID, stock: 20 });
+      chain.limit.mockResolvedValueOnce([{ id: PID, stock: 20 }]);
       redis.get.mockResolvedValue(cartJson([]));
 
       const res = await app.inject({
@@ -226,7 +277,7 @@ describe('cart module (TC-020 – TC-024)', () => {
     });
 
     it('returns 400 INSUFFICIENT_STOCK when quantity exceeds stock', async () => {
-      prisma.product.findUnique.mockResolvedValue({ id: PID, stock: 2 });
+      chain.limit.mockResolvedValueOnce([{ id: PID, stock: 2 }]);
 
       const res = await app.inject({
         method: 'PUT',
@@ -240,7 +291,6 @@ describe('cart module (TC-020 – TC-024)', () => {
     });
   });
 
-  // ==================== TC-022: REMOVE ITEM ====================
   describe('TC-022: DELETE /api/cart/items/:productId', () => {
     it('removes an existing item', async () => {
       redis.get.mockResolvedValue(cartJson([{ productId: PID, quantity: 1, giftWrap: false, addedAt: 'x' }]));
@@ -268,7 +318,6 @@ describe('cart module (TC-020 – TC-024)', () => {
     });
   });
 
-  // ==================== TC-023: APPLY PROMO ====================
   describe('TC-023: POST /api/cart/apply-promo', () => {
     function activePromo(overrides: Record<string, unknown> = {}) {
       return {
@@ -287,9 +336,10 @@ describe('cart module (TC-020 – TC-024)', () => {
     }
 
     it('applies a percentage discount', async () => {
-      prisma.promoCode.findUnique.mockResolvedValue(activePromo());
+      chain.limit.mockResolvedValueOnce([activePromo()]);
       redis.get.mockResolvedValue(cartJson([{ productId: PID, quantity: 2, giftWrap: false, addedAt: 'x' }]));
-      prisma.product.findMany.mockResolvedValue([{ id: PID, price: 250000 }]);
+      chain.where.mockReturnValueOnce(chain);
+      chain.where.mockResolvedValueOnce([{ id: PID, price: 250000 }]);
 
       const res = await app.inject({
         method: 'POST',
@@ -306,9 +356,10 @@ describe('cart module (TC-020 – TC-024)', () => {
     });
 
     it('caps a percentage discount at maxDiscount', async () => {
-      prisma.promoCode.findUnique.mockResolvedValue(activePromo({ value: 50, maxDiscount: 100000 }));
+      chain.limit.mockResolvedValueOnce([activePromo({ value: 50, maxDiscount: 100000 })]);
       redis.get.mockResolvedValue(cartJson([{ productId: PID, quantity: 2, giftWrap: false, addedAt: 'x' }]));
-      prisma.product.findMany.mockResolvedValue([{ id: PID, price: 250000 }]);
+      chain.where.mockReturnValueOnce(chain);
+      chain.where.mockResolvedValueOnce([{ id: PID, price: 250000 }]);
 
       const res = await app.inject({
         method: 'POST',
@@ -322,9 +373,10 @@ describe('cart module (TC-020 – TC-024)', () => {
     });
 
     it('applies a fixed-amount discount', async () => {
-      prisma.promoCode.findUnique.mockResolvedValue(activePromo({ type: 'FIXED', value: 30000 }));
+      chain.limit.mockResolvedValueOnce([activePromo({ type: 'FIXED', value: 30000 })]);
       redis.get.mockResolvedValue(cartJson([{ productId: PID, quantity: 1, giftWrap: false, addedAt: 'x' }]));
-      prisma.product.findMany.mockResolvedValue([{ id: PID, price: 250000 }]);
+      chain.where.mockReturnValueOnce(chain);
+      chain.where.mockResolvedValueOnce([{ id: PID, price: 250000 }]);
 
       const res = await app.inject({
         method: 'POST',
@@ -351,7 +403,7 @@ describe('cart module (TC-020 – TC-024)', () => {
     });
 
     it('returns 404 for an unknown promo code', async () => {
-      prisma.promoCode.findUnique.mockResolvedValue(null);
+      chain.limit.mockResolvedValueOnce([]);
 
       const res = await app.inject({
         method: 'POST',
@@ -365,7 +417,7 @@ describe('cart module (TC-020 – TC-024)', () => {
     });
 
     it('returns 400 when the promo is inactive', async () => {
-      prisma.promoCode.findUnique.mockResolvedValue(activePromo({ status: 'INACTIVE' }));
+      chain.limit.mockResolvedValueOnce([activePromo({ status: 'INACTIVE' })]);
 
       const res = await app.inject({
         method: 'POST',
@@ -379,9 +431,10 @@ describe('cart module (TC-020 – TC-024)', () => {
     });
 
     it('returns 400 when the promo requires a higher minimum order', async () => {
-      prisma.promoCode.findUnique.mockResolvedValue(activePromo({ minOrder: 1000000 }));
+      chain.limit.mockResolvedValueOnce([activePromo({ minOrder: 1000000 })]);
       redis.get.mockResolvedValue(cartJson([{ productId: PID, quantity: 1, giftWrap: false, addedAt: 'x' }]));
-      prisma.product.findMany.mockResolvedValue([{ id: PID, price: 250000 }]);
+      chain.where.mockReturnValueOnce(chain);
+      chain.where.mockResolvedValueOnce([{ id: PID, price: 250000 }]);
 
       const res = await app.inject({
         method: 'POST',
@@ -395,7 +448,7 @@ describe('cart module (TC-020 – TC-024)', () => {
     });
 
     it('returns 400 when the cart is empty', async () => {
-      prisma.promoCode.findUnique.mockResolvedValue(activePromo());
+      chain.limit.mockResolvedValueOnce([activePromo()]);
       redis.get.mockResolvedValue(cartJson([]));
 
       const res = await app.inject({
@@ -410,7 +463,6 @@ describe('cart module (TC-020 – TC-024)', () => {
     });
   });
 
-  // ==================== TC-024: CLEAR CART ====================
   describe('TC-024: DELETE /api/cart', () => {
     it('empties the cart', async () => {
       const res = await app.inject({ method: 'DELETE', url: '/api/cart', headers: authHeader(app) });

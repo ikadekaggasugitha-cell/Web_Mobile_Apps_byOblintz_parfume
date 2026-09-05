@@ -1,5 +1,7 @@
 import { FastifyInstance } from 'fastify';
-import prisma from '../../config/database';
+import { eq, desc, asc, sql } from 'drizzle-orm';
+import { db } from '../../db';
+import { banners } from '../../db/schema';
 import { handleRouteError } from '../../lib/errors';
 import { requireAuth, requireAdmin } from '../../middleware/auth';
 import { z } from 'zod';
@@ -17,31 +19,32 @@ const bannerSchema = z.object({
 export async function bannerRoutes(app: FastifyInstance) {
   // ==================== LIST ACTIVE BANNERS (PUBLIC) ====================
   app.get('/', async (request, reply) => {
-    const banners = await prisma.banner.findMany({
-      where: { isActive: true },
-      orderBy: { sortOrder: 'asc' },
-      select: {
-        id: true,
-        title: true,
-        subtitle: true,
-        imageUrl: true,
-        link: true,
-        position: true,
-      },
-    });
+    const activeBanners = await db
+      .select({
+        id: banners.id,
+        title: banners.title,
+        subtitle: banners.subtitle,
+        imageUrl: banners.imageUrl,
+        link: banners.link,
+        position: banners.position,
+      })
+      .from(banners)
+      .where(eq(banners.isActive, true))
+      .orderBy(asc(banners.sortOrder));
 
-    return reply.status(200).send({ success: true, data: banners });
+    return reply.status(200).send({ success: true, data: activeBanners });
   });
 
   // ==================== ADMIN: LIST ALL BANNERS ====================
   app.get('/admin/all', {
     preHandler: [requireAdmin],
   }, async (request, reply) => {
-    const banners = await prisma.banner.findMany({
-      orderBy: { sortOrder: 'asc' },
-    });
+    const allBanners = await db
+      .select()
+      .from(banners)
+      .orderBy(asc(banners.sortOrder));
 
-    return reply.status(200).send({ success: true, data: banners });
+    return reply.status(200).send({ success: true, data: allBanners });
   });
 
   // ==================== ADMIN: CREATE BANNER ====================
@@ -51,22 +54,24 @@ export async function bannerRoutes(app: FastifyInstance) {
     try {
       const input = bannerSchema.parse(request.body);
 
-      // Get max sort order
-      const maxSort = await prisma.banner.aggregate({
-        _max: { sortOrder: true },
-      });
+      const [maxSortRow] = await db
+        .select({ maxSort: sql<number>`COALESCE(MAX(${banners.sortOrder}), 0)` })
+        .from(banners);
 
-      const banner = await prisma.banner.create({
-        data: {
+      const nextSortOrder = input.sortOrder ?? (maxSortRow?.maxSort ?? 0) + 1;
+
+      const [banner] = await db
+        .insert(banners)
+        .values({
           title: input.title,
           subtitle: input.subtitle,
           imageUrl: input.imageUrl,
           link: input.link,
           position: input.position,
-          sortOrder: input.sortOrder ?? (maxSort._max.sortOrder ?? 0) + 1,
+          sortOrder: nextSortOrder,
           isActive: input.isActive,
-        },
-      });
+        })
+        .returning();
 
       return reply.status(201).send({ success: true, data: banner });
     } catch (error) {
@@ -80,8 +85,13 @@ export async function bannerRoutes(app: FastifyInstance) {
   }, async (request, reply) => {
     const { id } = request.params as { id: string };
 
-    const banner = await prisma.banner.findUnique({ where: { id } });
-    if (!banner) {
+    const [existing] = await db
+      .select()
+      .from(banners)
+      .where(eq(banners.id, id))
+      .limit(1);
+
+    if (!existing) {
       return reply.status(404).send({
         success: false,
         error: { code: 'NOT_FOUND', message: 'Banner tidak ditemukan' },
@@ -91,18 +101,20 @@ export async function bannerRoutes(app: FastifyInstance) {
     try {
       const input = bannerSchema.partial().parse(request.body);
 
-      const updated = await prisma.banner.update({
-        where: { id },
-        data: {
-          ...(input.title && { title: input.title }),
-          ...(input.subtitle !== undefined && { subtitle: input.subtitle }),
-          ...(input.imageUrl && { imageUrl: input.imageUrl }),
-          ...(input.link !== undefined && { link: input.link }),
-          ...(input.position && { position: input.position }),
-          ...(input.sortOrder !== undefined && { sortOrder: input.sortOrder }),
-          ...(input.isActive !== undefined && { isActive: input.isActive }),
-        },
-      });
+      const updateData: Record<string, any> = {};
+      if (input.title) updateData.title = input.title;
+      if (input.subtitle !== undefined) updateData.subtitle = input.subtitle;
+      if (input.imageUrl) updateData.imageUrl = input.imageUrl;
+      if (input.link !== undefined) updateData.link = input.link;
+      if (input.position) updateData.position = input.position;
+      if (input.sortOrder !== undefined) updateData.sortOrder = input.sortOrder;
+      if (input.isActive !== undefined) updateData.isActive = input.isActive;
+
+      const [updated] = await db
+        .update(banners)
+        .set(updateData)
+        .where(eq(banners.id, id))
+        .returning();
 
       return reply.status(200).send({ success: true, data: updated });
     } catch (error) {
@@ -116,15 +128,20 @@ export async function bannerRoutes(app: FastifyInstance) {
   }, async (request, reply) => {
     const { id } = request.params as { id: string };
 
-    const banner = await prisma.banner.findUnique({ where: { id } });
-    if (!banner) {
+    const [existing] = await db
+      .select()
+      .from(banners)
+      .where(eq(banners.id, id))
+      .limit(1);
+
+    if (!existing) {
       return reply.status(404).send({
         success: false,
         error: { code: 'NOT_FOUND', message: 'Banner tidak ditemukan' },
       });
     }
 
-    await prisma.banner.delete({ where: { id } });
+    await db.delete(banners).where(eq(banners.id, id));
 
     return reply.status(200).send({
       success: true,
@@ -145,14 +162,14 @@ export async function bannerRoutes(app: FastifyInstance) {
       });
     }
 
-    await prisma.$transaction(
-      ids.map((id, index) =>
-        prisma.banner.update({
-          where: { id },
-          data: { sortOrder: index + 1 },
-        })
-      )
-    );
+    await db.transaction(async (tx) => {
+      for (let i = 0; i < ids.length; i++) {
+        await tx
+          .update(banners)
+          .set({ sortOrder: i + 1 })
+          .where(eq(banners.id, ids[i]));
+      }
+    });
 
     return reply.status(200).send({
       success: true,
