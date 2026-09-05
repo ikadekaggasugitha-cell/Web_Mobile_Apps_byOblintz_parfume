@@ -1,8 +1,11 @@
 'use client';
 
-import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Menu, ExternalLink } from 'lucide-react';
+
+// Public storefront (apps/web). Overridable per environment; defaults to the
+// local dev port so "Lihat Situs" opens the real site, not the admin root.
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
 
 interface AdminHeaderProps {
   onMenuToggle: () => void;
@@ -51,13 +54,15 @@ export function AdminHeader({ onMenuToggle }: AdminHeaderProps) {
       </div>
 
       <div className="flex items-center gap-2 sm:gap-3">
-        <Link
-          href="/"
+        <a
+          href={SITE_URL}
+          target="_blank"
+          rel="noopener noreferrer"
           className="hidden items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900 sm:inline-flex"
         >
           <ExternalLink className="h-4 w-4" strokeWidth={2} />
           Lihat Situs
-        </Link>
+        </a>
 
         <div className="h-6 w-px bg-slate-200" aria-hidden="true" />
 

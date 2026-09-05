@@ -45,7 +45,7 @@ export default function AdminLoginPage() {
       localStorage.setItem('adminRefreshToken', refreshToken);
       localStorage.setItem('adminUser', JSON.stringify(user));
 
-      router.push('/');
+      router.push('/dashboard');
     } catch (err: any) {
       setError(err.response?.data?.error?.message || 'Login gagal');
     } finally {
