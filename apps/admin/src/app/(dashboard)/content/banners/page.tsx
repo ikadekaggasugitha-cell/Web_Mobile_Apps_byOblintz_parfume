@@ -10,6 +10,7 @@ import { api } from '@/lib/api';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
 import { Input } from '@/components/ui/Input';
+import { ImageUpload } from '@/components/ui/ImageUpload';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 
 interface Banner {
@@ -29,7 +30,7 @@ type View = 'active' | 'trash';
 const bannerSchema = z.object({
   title: z.string().min(1, 'Judul wajib diisi'),
   subtitle: z.string().optional(),
-  imageUrl: z.string().min(1, 'URL Gambar wajib diisi').url('URL Gambar tidak valid'),
+  imageUrl: z.string().min(1, 'Gambar wajib diupload').url('URL Gambar tidak valid'),
   link: z.string().url('Link tidak valid').optional().or(z.literal('')),
   position: z.string().min(1, 'Posisi wajib dipilih'),
   isActive: z.boolean(),
@@ -63,6 +64,8 @@ export default function AdminBannersPage() {
     register,
     handleSubmit,
     reset,
+    watch,
+    setValue,
     formState: { errors, isSubmitting },
   } = useForm<BannerInput>({
     resolver: zodResolver(bannerSchema),
@@ -367,10 +370,11 @@ export default function AdminBannersPage() {
                 <label htmlFor="banner-subtitle" className="mb-1.5 block text-sm font-medium text-slate-700">Subtitle (opsional)</label>
                 <Input id="banner-subtitle" {...register('subtitle')} />
               </div>
-              <div>
-                <label htmlFor="banner-image" className="mb-1.5 block text-sm font-medium text-slate-700">URL Gambar</label>
-                <Input id="banner-image" type="url" {...register('imageUrl')} error={errors.imageUrl?.message} />
-              </div>
+              <ImageUpload
+                value={watch('imageUrl') || ''}
+                onChange={(url) => setValue('imageUrl', url, { shouldValidate: true })}
+                error={errors.imageUrl?.message}
+              />
               <div>
                 <label htmlFor="banner-link" className="mb-1.5 block text-sm font-medium text-slate-700">Link (opsional)</label>
                 <Input id="banner-link" type="url" {...register('link')} error={errors.link?.message} />

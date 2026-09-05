@@ -16,6 +16,7 @@ interface Banner {
 }
 
 const AUTOPLAY_MS = 6000;
+const SWIPE_THRESHOLD = 50;
 
 /**
  * CMS-driven hero. Renders the active banners managed in the admin panel as a
@@ -28,6 +29,9 @@ export function HeroCarousel() {
   const [isLoading, setIsLoading] = useState(true);
   const [current, setCurrent] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const touchStartX = useRef<number>(0);
+  const touchStartY = useRef<number>(0);
+  const isPaused = useRef(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -65,13 +69,66 @@ export function HeroCarousel() {
   // Auto-advance while there is more than one slide.
   useEffect(() => {
     if (banners.length <= 1) return;
-    timerRef.current = setInterval(() => {
-      setCurrent((c) => (c + 1) % banners.length);
-    }, AUTOPLAY_MS);
+
+    const startTimer = () => {
+      timerRef.current = setInterval(() => {
+        if (!isPaused.current) {
+          setCurrent((c) => (c + 1) % banners.length);
+        }
+      }, AUTOPLAY_MS);
+    };
+
+    startTimer();
+
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
   }, [banners.length]);
+
+  // Pause autoplay on hover (desktop) or touch (mobile)
+  const handleMouseEnter = useCallback(() => {
+    isPaused.current = true;
+  }, []);
+
+  const handleMouseLeave = useCallback(() => {
+    isPaused.current = false;
+  }, []);
+
+  // Touch handlers for swipe
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    isPaused.current = true;
+    touchStartX.current = e.touches[0].clientX;
+    touchStartY.current = e.touches[0].clientY;
+  }, []);
+
+  const handleTouchEnd = useCallback(
+    (e: React.TouchEvent) => {
+      const touchEndX = e.changedTouches[0].clientX;
+      const touchEndY = e.changedTouches[0].clientY;
+      const deltaX = touchEndX - touchStartX.current;
+      const deltaY = touchEndY - touchStartY.current;
+
+      // Only trigger swipe if horizontal movement is dominant
+      if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > SWIPE_THRESHOLD) {
+        if (deltaX < 0) {
+          next();
+        } else {
+          prev();
+        }
+      }
+
+      // Resume autoplay after swipe
+      setTimeout(() => {
+        isPaused.current = false;
+      }, 3000);
+    },
+    [next, prev]
+  );
+
+  // Respect prefers-reduced-motion
+  const prefersReducedMotion =
+    typeof window !== 'undefined' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   // While loading, hold the layout with the static hero to avoid a flash.
   if (isLoading) return <Hero />;
@@ -84,6 +141,10 @@ export function HeroCarousel() {
       className="relative bg-primary-900"
       aria-roledescription="carousel"
       aria-label="Banner promosi"
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
     >
       <div className="relative aspect-[16/10] w-full overflow-hidden sm:aspect-[21/9] lg:aspect-[24/9]">
         {banners.map((banner, index) => {
