@@ -29,6 +29,7 @@ import { articleRoutes } from './modules/article/article.routes';
 import { bannerRoutes } from './modules/banner/banner.routes';
 import { reportRoutes } from './modules/report/report.routes';
 import { faqRoutes } from './modules/faq/faq.routes';
+import { stockRoutes } from './modules/stock/stock.routes';
 
 const server = Fastify({
   logger: {
@@ -225,6 +226,7 @@ async function bootstrap() {
   await server.register(bannerRoutes, { prefix: '/api/banners' });
   await server.register(reportRoutes, { prefix: '/api/reports' });
   await server.register(faqRoutes, { prefix: '/api/faq' });
+  await server.register(stockRoutes, { prefix: '/api/stock' });
 
   // Start server
   try {

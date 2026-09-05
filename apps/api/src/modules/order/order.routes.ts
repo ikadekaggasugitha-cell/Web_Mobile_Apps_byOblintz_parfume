@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { db } from '../../db';
-import { orders, orderItems, transactions, giftWrappings, products, users } from '../../db/schema';
+import { orders, orderItems, transactions, giftWrappings, products, users, stockMovements } from '../../db/schema';
 import { eq, and, or, desc, ilike, count, sql, inArray } from 'drizzle-orm';
 import { requireAuth, requireAdmin } from '../../middleware/auth';
 import { handleRouteError } from '../../lib/errors';
@@ -179,6 +179,14 @@ export async function orderRoutes(app: FastifyInstance) {
         await tx.update(products)
           .set({ stock: sql`${products.stock} + ${item.quantity}` })
           .where(eq(products.id, item.productId));
+
+        await tx.insert(stockMovements).values({
+          productId: item.productId,
+          type: 'CANCEL',
+          quantity: item.quantity,
+          referenceId: id,
+          referenceType: 'ORDER',
+        });
       }
 
       await tx.update(orders)

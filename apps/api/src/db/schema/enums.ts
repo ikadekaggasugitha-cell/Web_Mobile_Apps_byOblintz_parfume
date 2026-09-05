@@ -19,3 +19,4 @@ export const subscriptionFrequencyEnum = pgEnum('subscription_frequency', ['MONT
 export const reviewStatusEnum = pgEnum('review_status', ['PENDING', 'APPROVED', 'REJECTED'])
 export const promoTypeEnum = pgEnum('promo_type', ['PERCENTAGE', 'FIXED', 'FREE_SHIPPING'])
 export const promoCodeStatusEnum = pgEnum('promo_code_status', ['ACTIVE', 'INACTIVE', 'EXPIRED'])
+export const stockMovementTypeEnum = pgEnum('stock_movement_type', ['ORDER', 'CANCEL', 'RESTOCK', 'ADJUSTMENT', 'RETURN'])

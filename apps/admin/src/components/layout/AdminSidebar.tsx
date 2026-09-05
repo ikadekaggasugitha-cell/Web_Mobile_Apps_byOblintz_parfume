@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils';
 const menuItems = [
   { href: '/dashboard', label: 'Dashboard', icon: '📊' },
   { href: '/products', label: 'Products', icon: '📦' },
+  { href: '/stock', label: 'Stock Recap', icon: '📋' },
   { href: '/orders', label: 'Orders', icon: '🛒' },
   { href: '/users', label: 'Users', icon: '👥' },
   { href: '/content/banners', label: 'Banners', icon: '🖼️' },

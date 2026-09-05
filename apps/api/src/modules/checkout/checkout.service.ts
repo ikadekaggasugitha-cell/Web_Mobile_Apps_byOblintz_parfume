@@ -1,5 +1,5 @@
 import { db } from '../../db';
-import { products, orders, orderItems, promoCodes, giftWrappings } from '../../db/schema';
+import { products, orders, orderItems, promoCodes, giftWrappings, stockMovements } from '../../db/schema';
 import { eq, and, gte, inArray, sql } from 'drizzle-orm';
 import { redis } from '../../config/redis';
 import { nanoid } from 'nanoid';
@@ -144,6 +144,14 @@ export async function processCheckout(data: CheckoutData) {
       await tx.update(products)
         .set({ stock: sql`${products.stock} - ${item.quantity}` })
         .where(eq(products.id, item.productId));
+
+      await tx.insert(stockMovements).values({
+        productId: item.productId,
+        type: 'ORDER',
+        quantity: -item.quantity,
+        referenceId: newOrder.id,
+        referenceType: 'ORDER',
+      });
     }
 
     if (promoRecord) {
