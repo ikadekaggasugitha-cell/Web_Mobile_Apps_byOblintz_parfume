@@ -16,7 +16,6 @@
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "db:migrate": "drizzle-kit generate && drizzle-kit migrate",
     "db:migrate:dev": "drizzle-kit generate && drizzle-kit migrate",
-    "db:push": "drizzle-kit push",
     "db:seed": "tsx seed/seed.ts",
     "db:reset": "tsx seed/seed-reset.ts",
     "db:studio": "drizzle-kit studio",
