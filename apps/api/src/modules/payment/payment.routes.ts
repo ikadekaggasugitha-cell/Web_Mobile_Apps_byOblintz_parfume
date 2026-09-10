@@ -115,6 +115,7 @@ export async function paymentRoutes(app: FastifyInstance) {
       id: transactions.id,
       status: transactions.status,
       amount: transactions.amount,
+      qrCode: transactions.qrCode,
       orderId: transactions.orderId,
       order: {
         id: orders.id,
@@ -140,6 +141,7 @@ export async function paymentRoutes(app: FastifyInstance) {
         transactionId: transaction.id,
         status: transaction.status,
         amount: transaction.amount,
+        qrCode: transaction.qrCode,
         order: transaction.order,
       },
     });
@@ -175,13 +177,13 @@ export async function paymentRoutes(app: FastifyInstance) {
 
     if (transaction_status === 'capture') {
       if (fraud_status === 'accept') {
-        txStatus = 'SUCCESS';
+        txStatus = 'PAID';
         orderStatus = 'PAID';
       } else if (fraud_status === 'challenge') {
         txStatus = 'PENDING';
       }
     } else if (transaction_status === 'settlement') {
-      txStatus = 'SUCCESS';
+      txStatus = 'PAID';
       orderStatus = 'PAID';
     } else if (transaction_status === 'pending') {
       txStatus = 'PENDING';

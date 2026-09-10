@@ -7,6 +7,7 @@ import { redis } from '../../config/redis';
 import { requireAuth } from '../../middleware/auth';
 import { addToCartSchema, updateCartItemSchema, applyPromoSchema } from './cart.schema';
 import { promoCodes } from '../../db/schema/promos';
+import { evaluatePromo } from '../../lib/promo';
 
 const CART_TTL = 30 * 24 * 60 * 60;
 const LOCK_TTL = 5000;
@@ -365,15 +366,11 @@ export async function cartRoutes(app: FastifyInstance) {
         });
       }
 
-      let discount = 0;
-      if (promo.type === 'PERCENTAGE') {
-        discount = subtotal * (Number(promo.value) / 100);
-        if (promo.maxDiscount && discount > Number(promo.maxDiscount)) {
-          discount = Number(promo.maxDiscount);
-        }
-      } else if (promo.type === 'FIXED') {
-        discount = Number(promo.value);
-      }
+      // Delegate discount math to the single source of truth so this preview
+      // can never drift from what checkout actually applies. Shipping fee is 0
+      // here because the cart stage has no shipping method yet and the response
+      // total excludes shipping; FREE_SHIPPING credit is deferred to checkout.
+      const { discount } = evaluatePromo(promo, subtotal, 0);
 
       return reply.status(200).send({
         success: true,

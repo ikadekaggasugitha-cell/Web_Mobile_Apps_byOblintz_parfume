@@ -245,12 +245,41 @@ describe('article module', () => {
   });
 
   describe('DELETE /api/articles/admin/:id', () => {
-    it('deletes an article', async () => {
+    it('soft-deletes an article (moves it to trash)', async () => {
       chain.limit.mockResolvedValueOnce([makeArticle()]);
 
       const res = await app.inject({
         method: 'DELETE',
         url: `/api/articles/admin/${ARTICLE_ID}`,
+        headers: adminHeader(app),
+      });
+
+      expect(res.statusCode).toBe(200);
+      // Soft delete stamps deletedAt via db.update; it must not hard-delete.
+      expect(db.update).toHaveBeenCalled();
+      expect(db.delete).not.toHaveBeenCalled();
+    });
+
+    it('returns 404 when the article is missing', async () => {
+      chain.limit.mockResolvedValueOnce([]);
+
+      const res = await app.inject({
+        method: 'DELETE',
+        url: `/api/articles/admin/${ARTICLE_ID}`,
+        headers: adminHeader(app),
+      });
+
+      expect(res.statusCode).toBe(404);
+    });
+  });
+
+  describe('DELETE /api/articles/admin/:id/permanent', () => {
+    it('hard-deletes an article', async () => {
+      chain.limit.mockResolvedValueOnce([makeArticle()]);
+
+      const res = await app.inject({
+        method: 'DELETE',
+        url: `/api/articles/admin/${ARTICLE_ID}/permanent`,
         headers: adminHeader(app),
       });
 
@@ -263,7 +292,7 @@ describe('article module', () => {
 
       const res = await app.inject({
         method: 'DELETE',
-        url: `/api/articles/admin/${ARTICLE_ID}`,
+        url: `/api/articles/admin/${ARTICLE_ID}/permanent`,
         headers: adminHeader(app),
       });
 

@@ -380,14 +380,45 @@ describe('promo module', () => {
 
   // ==================== ADMIN DELETE ====================
   describe('DELETE /api/promos/admin/:id', () => {
-    it('deletes a promo', async () => {
+    it('soft-deletes a promo (moves it to trash)', async () => {
       chain.where.mockReturnValueOnce(chain);
       chain.limit.mockResolvedValueOnce([makePromo()]);
-      db.delete.mockReturnValueOnce({ where: vi.fn() });
 
       const res = await app.inject({
         method: 'DELETE',
         url: `/api/promos/admin/${PROMO_ID}`,
+        headers: adminHeader(app),
+      });
+
+      expect(res.statusCode).toBe(200);
+      // Soft delete stamps deletedAt via db.update; it must not hard-delete.
+      expect(db.update).toHaveBeenCalled();
+      expect(db.delete).not.toHaveBeenCalled();
+    });
+
+    it('returns 404 when the promo is missing', async () => {
+      chain.where.mockReturnValueOnce(chain);
+      chain.limit.mockResolvedValueOnce([]);
+
+      const res = await app.inject({
+        method: 'DELETE',
+        url: `/api/promos/admin/${PROMO_ID}`,
+        headers: adminHeader(app),
+      });
+
+      expect(res.statusCode).toBe(404);
+    });
+  });
+
+  // ==================== ADMIN PERMANENT DELETE ====================
+  describe('DELETE /api/promos/admin/:id/permanent', () => {
+    it('hard-deletes a promo', async () => {
+      chain.where.mockReturnValueOnce(chain);
+      chain.limit.mockResolvedValueOnce([makePromo()]);
+
+      const res = await app.inject({
+        method: 'DELETE',
+        url: `/api/promos/admin/${PROMO_ID}/permanent`,
         headers: adminHeader(app),
       });
 
@@ -401,7 +432,7 @@ describe('promo module', () => {
 
       const res = await app.inject({
         method: 'DELETE',
-        url: `/api/promos/admin/${PROMO_ID}`,
+        url: `/api/promos/admin/${PROMO_ID}/permanent`,
         headers: adminHeader(app),
       });
 

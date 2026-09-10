@@ -329,16 +329,15 @@ describe('category module', () => {
 
   // ==================== ADMIN DELETE ====================
   describe('DELETE /api/categories/admin/:id', () => {
-    it('deletes an empty category', async () => {
+    it('soft-deletes an empty category (moves it to trash)', async () => {
       // Q1: .from().where().limit(1) → where non-terminal, limit terminal
-      // Q2: .from().where() → where terminal
-      // Q3: db.delete().where() → db.delete terminal
+      // Q2: .from().where() → where terminal (product count)
+      // Q3: db.update().set().where() → soft delete stamps deletedAt
       chain.where
         .mockReturnValueOnce(chain)                        // Q1 .where() non-terminal
         .mockResolvedValueOnce([{ productCount: 0 }]);     // Q2 .where() terminal
       chain.limit
         .mockResolvedValueOnce([makeCategory()]);          // Q1 .limit(1) terminal
-      db.delete.mockReturnValueOnce({ where: vi.fn() });
 
       const res = await app.inject({
         method: 'DELETE',
@@ -347,7 +346,9 @@ describe('category module', () => {
       });
 
       expect(res.statusCode).toBe(200);
-      expect(db.delete).toHaveBeenCalled();
+      // Soft delete stamps deletedAt via db.update; it must not hard-delete.
+      expect(db.update).toHaveBeenCalled();
+      expect(db.delete).not.toHaveBeenCalled();
     });
 
     it('returns 404 when the category is missing', async () => {
@@ -384,6 +385,39 @@ describe('category module', () => {
       expect(res.statusCode).toBe(400);
       expect(res.json().error.code).toBe('HAS_PRODUCTS');
       expect(db.delete).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('DELETE /api/categories/admin/:id/permanent', () => {
+    it('hard-deletes an empty category', async () => {
+      // Q1: select category → Q2: product count → Q3: db.delete()
+      chain.where
+        .mockReturnValueOnce(chain)                        // Q1 .where() non-terminal
+        .mockResolvedValueOnce([{ productCount: 0 }]);     // Q2 .where() terminal
+      chain.limit
+        .mockResolvedValueOnce([makeCategory()]);          // Q1 .limit(1) terminal
+
+      const res = await app.inject({
+        method: 'DELETE',
+        url: `/api/categories/admin/${CAT_ID}/permanent`,
+        headers: adminHeader(app),
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(db.delete).toHaveBeenCalled();
+    });
+
+    it('returns 404 when the category is missing', async () => {
+      chain.where.mockReturnValueOnce(chain);
+      chain.limit.mockResolvedValueOnce([]);
+
+      const res = await app.inject({
+        method: 'DELETE',
+        url: `/api/categories/admin/${CAT_ID}/permanent`,
+        headers: adminHeader(app),
+      });
+
+      expect(res.statusCode).toBe(404);
     });
   });
 });

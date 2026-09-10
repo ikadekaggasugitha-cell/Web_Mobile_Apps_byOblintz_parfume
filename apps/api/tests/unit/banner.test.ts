@@ -227,10 +227,9 @@ describe('banner module', () => {
 
   // ==================== ADMIN DELETE ====================
   describe('DELETE /api/banners/admin/:id', () => {
-    it('deletes a banner', async () => {
+    it('soft-deletes a banner (moves it to trash)', async () => {
       // Q1: .select().from(banners).where(...).limit(1) → terminal .limit()
       chain.limit.mockResolvedValueOnce([makeBanner()]);
-      db.delete.mockReturnValueOnce({ where: vi.fn() });
 
       const res = await app.inject({
         method: 'DELETE',
@@ -239,7 +238,9 @@ describe('banner module', () => {
       });
 
       expect(res.statusCode).toBe(200);
-      expect(db.delete).toHaveBeenCalled();
+      // Soft delete stamps deletedAt via db.update; it must not hard-delete.
+      expect(db.update).toHaveBeenCalled();
+      expect(db.delete).not.toHaveBeenCalled();
     });
 
     it('returns 404 when the banner is missing', async () => {
@@ -249,6 +250,33 @@ describe('banner module', () => {
       const res = await app.inject({
         method: 'DELETE',
         url: `/api/banners/admin/${BANNER_ID}`,
+        headers: adminHeader(app),
+      });
+
+      expect(res.statusCode).toBe(404);
+    });
+  });
+
+  describe('DELETE /api/banners/admin/:id/permanent', () => {
+    it('hard-deletes a banner', async () => {
+      chain.limit.mockResolvedValueOnce([makeBanner()]);
+
+      const res = await app.inject({
+        method: 'DELETE',
+        url: `/api/banners/admin/${BANNER_ID}/permanent`,
+        headers: adminHeader(app),
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(db.delete).toHaveBeenCalled();
+    });
+
+    it('returns 404 when the banner is missing', async () => {
+      chain.limit.mockResolvedValueOnce([]);
+
+      const res = await app.inject({
+        method: 'DELETE',
+        url: `/api/banners/admin/${BANNER_ID}/permanent`,
         headers: adminHeader(app),
       });
 
