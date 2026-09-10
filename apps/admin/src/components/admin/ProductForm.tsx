@@ -7,6 +7,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { api } from '@/lib/api';
 import { Input } from '@/components/ui/Input';
+import { ImageUpload } from '@/components/ui/ImageUpload';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
 
 interface Category {
@@ -47,7 +48,6 @@ const productSchema = z.object({
   notesBase: z.string().optional(),
   occasions: z.string().optional(),
   status: z.enum(['ACTIVE', 'DRAFT', 'INACTIVE']),
-  images: z.string().optional(),
   metaTitle: z.string().optional(),
   metaDesc: z.string().optional(),
 });
@@ -64,6 +64,7 @@ export function ProductForm({ initialData, mode }: ProductFormProps) {
   const { toasts, success, error: showError } = useToast();
   const [categories, setCategories] = useState<Category[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [images, setImages] = useState<string[]>(initialData?.images || []);
 
   const {
     register,
@@ -85,7 +86,6 @@ export function ProductForm({ initialData, mode }: ProductFormProps) {
       notesBase: initialData?.notes?.base?.join(', ') || '',
       occasions: initialData?.occasions?.join(', ') || '',
       status: (initialData?.status as any) || 'DRAFT',
-      images: initialData?.images?.join('\n') || '',
       metaTitle: initialData?.metaTitle || '',
       metaDesc: initialData?.metaDesc || '',
     },
@@ -123,7 +123,7 @@ export function ProductForm({ initialData, mode }: ProductFormProps) {
       notes: notes.top.length || notes.middle.length || notes.base.length ? notes : undefined,
       occasions: data.occasions ? data.occasions.split(',').map((s) => s.trim()).filter(Boolean) : [],
       status: data.status,
-      images: data.images ? data.images.split('\n').map((s) => s.trim()).filter(Boolean) : [],
+      images: images,
       metaTitle: data.metaTitle || undefined,
       metaDesc: data.metaDesc || undefined,
     };
@@ -253,12 +253,12 @@ export function ProductForm({ initialData, mode }: ProductFormProps) {
               <p className="mt-1 text-xs text-gray-500">Pisahkan dengan koma</p>
             </div>
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-gray-700">URL Gambar</label>
-              <textarea
-                {...register('images')}
-                rows={3}
-                className="w-full rounded-lg border border-gray-300 p-3 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
-                placeholder="Satu URL per baris"
+              <ImageUpload
+                multiple
+                maxImages={10}
+                value={images}
+                onChange={(value) => setImages(Array.isArray(value) ? value : value ? [value] : [])}
+                label="Gambar Produk"
               />
             </div>
           </div>

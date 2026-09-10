@@ -7,6 +7,12 @@ const nextConfig = {
         protocol: 'https',
         hostname: '**',
       },
+      // Uploaded media is served by the API over http in dev / same-host setups
+      // (e.g. http://<host>:5001/uploads/...). Allow http so next/image can load it.
+      {
+        protocol: 'http',
+        hostname: '**',
+      },
     ],
     formats: ['image/avif', 'image/webp'],
   },

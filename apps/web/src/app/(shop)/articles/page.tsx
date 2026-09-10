@@ -1,6 +1,7 @@
 import { Metadata } from 'next';
 import Link from 'next/link';
 import { getApiBaseUrl } from '@/lib/apiBase';
+import { resolveMediaUrl } from '@/lib/utils';
 import { PageHeader } from '@/components/layout/PageHeader';
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://oblintz.com';
@@ -77,10 +78,10 @@ export default async function ArticlesPage() {
               className="group flex flex-col overflow-hidden rounded-2xl border border-line bg-white transition-shadow hover:shadow-card"
             >
               <div className="aspect-[16/10] overflow-hidden bg-sand">
-                {article.imageUrl ? (
+                {resolveMediaUrl(article.imageUrl) ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
-                    src={article.imageUrl}
+                    src={resolveMediaUrl(article.imageUrl)!}
                     alt={article.title}
                     loading="lazy"
                     className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"

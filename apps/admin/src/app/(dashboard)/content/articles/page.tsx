@@ -9,13 +9,16 @@ import { api } from '@/lib/api';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
 import { Input } from '@/components/ui/Input';
+import { ImageUpload } from '@/components/ui/ImageUpload';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 
 interface Article {
   id: string;
   title: string;
   slug: string;
+  content?: string | null;
   excerpt: string | null;
+  imageUrl?: string | null;
   status: string;
   author: string;
   createdAt: string;
@@ -28,6 +31,7 @@ const articleSchema = z.object({
   title: z.string().min(1, 'Judul wajib diisi'),
   content: z.string().min(1, 'Konten wajib diisi'),
   excerpt: z.string().optional(),
+  imageUrl: z.string().optional(),
   status: z.enum(['DRAFT', 'PUBLISHED']),
 });
 
@@ -37,6 +41,7 @@ const DEFAULT_VALUES: ArticleInput = {
   title: '',
   content: '',
   excerpt: '',
+  imageUrl: '',
   status: 'DRAFT',
 };
 
@@ -59,6 +64,8 @@ export default function AdminArticlesPage() {
     register,
     handleSubmit,
     reset,
+    watch,
+    setValue,
     formState: { errors, isSubmitting },
   } = useForm<ArticleInput>({
     resolver: zodResolver(articleSchema),
@@ -176,8 +183,9 @@ export default function AdminArticlesPage() {
       setEditingArticle(article);
       reset({
         title: article.title,
-        content: '',
+        content: article.content || '',
         excerpt: article.excerpt || '',
+        imageUrl: article.imageUrl || '',
         status: article.status as 'DRAFT' | 'PUBLISHED',
       });
     } else {
@@ -376,6 +384,12 @@ export default function AdminArticlesPage() {
                 <label htmlFor="article-excerpt" className="mb-1.5 block text-sm font-medium text-slate-700">Excerpt (opsional)</label>
                 <Input id="article-excerpt" {...register('excerpt')} />
               </div>
+              <ImageUpload
+                label="Gambar Sampul (opsional)"
+                value={watch('imageUrl') || ''}
+                onChange={(url) => setValue('imageUrl', typeof url === 'string' ? url : url[0] || '', { shouldValidate: true })}
+                error={errors.imageUrl?.message}
+              />
               <div>
                 <label htmlFor="article-status" className="mb-1.5 block text-sm font-medium text-slate-700">Status</label>
                 <select id="article-status" {...register('status')} className="input w-full">

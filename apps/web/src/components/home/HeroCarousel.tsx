@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { ArrowRight, ChevronLeft, ChevronRight } from 'lucide-react';
 import api from '@/lib/api';
+import { resolveMediaUrl } from '@/lib/utils';
 import { Hero } from './Hero';
 
 interface Banner {
@@ -66,24 +67,25 @@ export function HeroCarousel() {
   const next = useCallback(() => goTo(current + 1), [goTo, current]);
   const prev = useCallback(() => goTo(current - 1), [goTo, current]);
 
+  // Respect prefers-reduced-motion
+  const prefersReducedMotion =
+    typeof window !== 'undefined' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
   // Auto-advance while there is more than one slide.
   useEffect(() => {
-    if (banners.length <= 1) return;
+    if (banners.length <= 1 || prefersReducedMotion) return;
 
-    const startTimer = () => {
-      timerRef.current = setInterval(() => {
-        if (!isPaused.current) {
-          setCurrent((c) => (c + 1) % banners.length);
-        }
-      }, AUTOPLAY_MS);
-    };
-
-    startTimer();
+    timerRef.current = setInterval(() => {
+      if (!isPaused.current) {
+        setCurrent((c) => (c + 1) % banners.length);
+      }
+    }, AUTOPLAY_MS);
 
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [banners.length]);
+  }, [banners.length, prefersReducedMotion]);
 
   // Pause autoplay on hover (desktop) or touch (mobile)
   const handleMouseEnter = useCallback(() => {
@@ -125,11 +127,6 @@ export function HeroCarousel() {
     [next, prev]
   );
 
-  // Respect prefers-reduced-motion
-  const prefersReducedMotion =
-    typeof window !== 'undefined' &&
-    window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-
   // While loading, hold the layout with the static hero to avoid a flash.
   if (isLoading) return <Hero />;
 
@@ -152,7 +149,7 @@ export function HeroCarousel() {
 
           const content = (
             <>
-              <BannerImage src={banner.imageUrl} alt={banner.title} priority={index === 0} />
+              <BannerImage src={resolveMediaUrl(banner.imageUrl)} alt={banner.title} priority={index === 0} />
 
               {/* Legibility scrim */}
               <div
@@ -258,13 +255,13 @@ function BannerImage({
   alt,
   priority,
 }: {
-  src: string;
+  src: string | null;
   alt: string;
   priority?: boolean;
 }) {
   const [failed, setFailed] = useState(false);
 
-  if (failed) {
+  if (!src || failed) {
     return (
       <div className="flex h-full w-full items-center justify-center bg-gradient-to-b from-primary-800 to-primary-900">
         <span className="font-serif text-3xl italic tracking-wide text-ivory/40">

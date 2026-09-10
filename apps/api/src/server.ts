@@ -3,7 +3,9 @@ import cors from '@fastify/cors';
 import jwt from '@fastify/jwt';
 import rateLimit from '@fastify/rate-limit';
 import multipart from '@fastify/multipart';
+import fastifyStatic from '@fastify/static';
 import helmet from '@fastify/helmet';
+import path from 'path';
 import { ZodError } from 'zod';
 import { config } from './config';
 import { db } from './db';
@@ -141,6 +143,9 @@ async function bootstrap() {
 
   await server.register(helmet, {
     contentSecurityPolicy: false,
+    // Allow the web/admin apps (different origin) to load uploaded images
+    // served from /uploads via cross-origin <img> requests.
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
   });
 
   await server.register(jwt, {
@@ -160,6 +165,13 @@ async function bootstrap() {
     limits: {
       fileSize: 5 * 1024 * 1024, // 5MB
     },
+  });
+
+  // Serve uploaded files (product/banner images) as static assets under /uploads.
+  await server.register(fastifyStatic, {
+    root: path.resolve(config.storage.uploadPath),
+    prefix: '/uploads/',
+    decorateReply: false,
   });
 
   // Set body size limit for JSON requests (1MB)

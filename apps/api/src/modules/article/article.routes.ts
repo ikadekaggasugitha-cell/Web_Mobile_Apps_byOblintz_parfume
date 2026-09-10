@@ -4,15 +4,16 @@ import { articles } from '../../db/schema/cms';
 import { sql, eq, and, or, desc, count, ilike, isNull, isNotNull } from 'drizzle-orm';
 import { handleRouteError } from '../../lib/errors';
 import { requireAuth, requireAdmin } from '../../middleware/auth';
-import { optionalUrl } from '../../lib/validation';
+import { optionalImageRef } from '../../lib/validation';
 import { z } from 'zod';
 
 const articleSchema = z.object({
   title: z.string().min(3).max(200),
   content: z.string().min(10),
   excerpt: z.string().max(500).optional(),
-  // Blank optional URL from the admin form ('') must not 400 the save.
-  imageUrl: optionalUrl,
+  // Blank optional image from the admin form ('') must not 400 the save.
+  // Accepts absolute URLs or uploaded app-relative paths (/uploads/...).
+  imageUrl: optionalImageRef,
   author: z.string().min(1).optional(),
   slug: z.string().optional(),
   status: z.enum(['DRAFT', 'PUBLISHED']).default('DRAFT'),

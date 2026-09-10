@@ -7,6 +7,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { api } from '@/lib/api';
+import { resolveMediaUrl } from '@/lib/utils';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
 import { Input } from '@/components/ui/Input';
@@ -290,7 +291,7 @@ export default function AdminBannersPage() {
                   <tr key={banner.id} className="transition-colors hover:bg-slate-50">
                     <td className="td">
                       <Image
-                        src={banner.imageUrl}
+                        src={resolveMediaUrl(banner.imageUrl) as string}
                         alt={banner.title}
                         width={96}
                         height={48}
@@ -372,7 +373,7 @@ export default function AdminBannersPage() {
               </div>
               <ImageUpload
                 value={watch('imageUrl') || ''}
-                onChange={(url) => setValue('imageUrl', url, { shouldValidate: true })}
+                onChange={(url) => setValue('imageUrl', typeof url === 'string' ? url : url[0] || '', { shouldValidate: true })}
                 error={errors.imageUrl?.message}
               />
               <div>

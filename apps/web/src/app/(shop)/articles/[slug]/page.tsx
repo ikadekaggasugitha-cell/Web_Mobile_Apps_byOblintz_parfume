@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ArrowLeft } from 'lucide-react';
 import { getApiBaseUrl } from '@/lib/apiBase';
+import { resolveMediaUrl } from '@/lib/utils';
 import { JsonLd } from '@/components/seo/JsonLd';
 
 const API_URL = getApiBaseUrl();
@@ -175,11 +176,11 @@ export default async function ArticlePage({
           )}
         </header>
 
-        {article.imageUrl && (
+        {resolveMediaUrl(article.imageUrl) && (
           <div className="mt-10 aspect-[16/9] overflow-hidden rounded-2xl bg-sand">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src={article.imageUrl}
+              src={resolveMediaUrl(article.imageUrl)!}
               alt={article.title}
               className="h-full w-full object-cover"
             />
