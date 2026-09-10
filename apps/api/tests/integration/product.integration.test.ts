@@ -71,4 +71,23 @@ suite('product integration — real database constraints', () => {
     expect(res.statusCode).toBe(400);
     expect(res.json().error.code).toBe('VALIDATION_ERROR');
   });
+
+  it('hides non-ACTIVE products from the public slug endpoint (archived → 404)', async () => {
+    const auth = { authorization: `Bearer ${adminToken}` };
+    const name = `${PREFIX}archived ${Date.now()}`;
+
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/products/admin',
+      headers: auth,
+      payload: { name, price: 120000, status: 'ARCHIVED' },
+    });
+    expect(created.statusCode).toBe(201);
+    const slug = created.json().data.slug;
+
+    // A "deleted"/unpublished product must not be publicly reachable by slug.
+    const detail = await app.inject({ method: 'GET', url: `/api/products/${slug}` });
+    expect(detail.statusCode).toBe(404);
+    expect(detail.json().error.code).toBe('NOT_FOUND');
+  });
 });

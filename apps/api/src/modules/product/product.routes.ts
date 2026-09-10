@@ -318,7 +318,7 @@ export async function productRoutes(app: FastifyInstance) {
       })
       .from(products)
       .leftJoin(categories, eq(products.categoryId, categories.id))
-      .where(eq(products.slug, slug))
+      .where(and(eq(products.slug, slug), eq(products.status, 'ACTIVE')))
       .limit(1);
 
     if (!product) {
