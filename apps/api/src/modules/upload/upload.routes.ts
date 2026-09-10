@@ -181,7 +181,10 @@ export async function uploadRoutes(app: FastifyInstance) {
     const relativePath = url.replace('/uploads/', '');
     const filePath = path.resolve(UPLOAD_DIR, relativePath);
 
-    if (!filePath.startsWith(UPLOAD_DIR)) {
+    // Contain the resolved path strictly *inside* UPLOAD_DIR. A bare
+    // startsWith(UPLOAD_DIR) also matches sibling dirs sharing the prefix
+    // (e.g. "/app/uploads-evil"), so require the trailing separator.
+    if (!filePath.startsWith(UPLOAD_DIR + path.sep)) {
       return reply.status(400).send({
         success: false,
         error: { code: 'INVALID_URL', message: 'URL tidak valid' },

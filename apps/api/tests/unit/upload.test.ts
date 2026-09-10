@@ -210,6 +210,21 @@ describe('upload module', () => {
       expect(res.json().error.code).toBe('INVALID_URL');
     });
 
+    it('returns 400 for a sibling-directory escape sharing the uploads prefix', async () => {
+      // Resolves to "<root>/uploads-evil/x.png": a bare startsWith(UPLOAD_DIR)
+      // would wrongly accept it; containment must require the path separator.
+      const res = await app.inject({
+        method: 'DELETE',
+        url: '/api/upload/image',
+        headers: adminHeader(app),
+        payload: { url: '/uploads/../uploads-evil/x.png' },
+      });
+
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error.code).toBe('INVALID_URL');
+      expect(fsMock.unlink).not.toHaveBeenCalled();
+    });
+
     it('returns 404 when the file does not exist', async () => {
       fsMock.unlink.mockRejectedValue(new Error('ENOENT'));
 
