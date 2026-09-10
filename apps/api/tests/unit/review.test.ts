@@ -328,8 +328,9 @@ describe('review module', () => {
       expect(res.statusCode).toBe(404);
     });
 
-    it('rejects (deletes) a review', async () => {
+    it('rejects a review by marking it REJECTED (not deleting it)', async () => {
       chain.limit.mockResolvedValueOnce([makeReview()]);
+      returningResult.mockResolvedValueOnce([makeReview({ status: 'REJECTED' })]);
 
       const res = await app.inject({
         method: 'PUT',
@@ -338,7 +339,10 @@ describe('review module', () => {
       });
 
       expect(res.statusCode).toBe(200);
-      expect(db.delete).toHaveBeenCalled();
+      // Reject keeps an audit trail via status, never hard-deletes.
+      expect(db.update).toHaveBeenCalled();
+      expect(db.delete).not.toHaveBeenCalled();
+      expect(res.json().data.status).toBe('REJECTED');
     });
 
     it('returns 404 when rejecting a missing review', async () => {

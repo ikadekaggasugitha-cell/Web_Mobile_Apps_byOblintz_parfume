@@ -389,11 +389,15 @@ export async function reviewRoutes(app: FastifyInstance) {
       });
     }
 
-    await db.delete(reviews).where(eq(reviews.id, id));
+    // Mark as REJECTED (keep an audit trail and block silent re-submission)
+    // instead of deleting. Rejected reviews stay hidden from the public product
+    // endpoint, which only surfaces APPROVED reviews.
+    const result = await db
+      .update(reviews)
+      .set({ status: 'REJECTED' })
+      .where(eq(reviews.id, id))
+      .returning();
 
-    return reply.status(200).send({
-      success: true,
-      data: { message: 'Review berhasil ditolak dan dihapus' },
-    });
+    return reply.status(200).send({ success: true, data: result[0] });
   });
 }
