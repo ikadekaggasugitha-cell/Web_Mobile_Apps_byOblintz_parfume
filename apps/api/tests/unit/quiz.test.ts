@@ -169,6 +169,27 @@ describe('quiz module', () => {
       expect(result[0].score).toBe(11);
     });
 
+    it('does not crash when notes is a non-array jsonb value', () => {
+      // `notes` is a schema-less jsonb column: a structured object or a string
+      // must degrade to a 0 notes-score, never throw.
+      const products = [
+        makeProduct({ id: 'obj', occasions: ['daily'], notes: { top: ['citrus'] } as any, price: 200000 }),
+        makeProduct({ id: 'str', occasions: ['daily'], notes: 'citrus' as any, price: 200000 }),
+      ];
+
+      const run = () =>
+        calculateRecommendations(
+          { occasion: 'daily', personality: 'fresh', season: 'summer', budget: 'low' },
+          products
+        );
+
+      expect(run).not.toThrow();
+      const result = run();
+      // Only occasion(3) + low budget(2) apply; notes-based personality/season = 0.
+      expect(result[0].score).toBe(5);
+      expect(result).toHaveLength(2);
+    });
+
     it('matches elegant personality, winter season and high budget', () => {
       const products = [
         makeProduct({ id: 'b', occasions: ['formal'], notes: ['amber'], price: 900000 }),

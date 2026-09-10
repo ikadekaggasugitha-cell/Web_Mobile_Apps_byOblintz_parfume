@@ -45,8 +45,11 @@ export function calculateRecommendations(answers: QuizAnswerInput, products: any
   return products
     .map((product) => {
       let score = 0;
-      const notes = product.notes || [];
-      const occasions = product.occasions || [];
+      // `notes` is a jsonb column (schema-less), so it may hold a non-array
+      // shape (e.g. a structured {top,middle,base} object). Guard before calling
+      // array methods so one such product can't crash the whole quiz.
+      const notes = Array.isArray(product.notes) ? product.notes : [];
+      const occasions = Array.isArray(product.occasions) ? product.occasions : [];
       const price = Number(product.price);
 
       // Occasion matching

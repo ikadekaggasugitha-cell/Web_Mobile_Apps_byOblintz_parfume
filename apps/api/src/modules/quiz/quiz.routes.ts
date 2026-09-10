@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify';
-import { eq, count, inArray } from 'drizzle-orm';
+import { eq, and, count, inArray } from 'drizzle-orm';
 import { db } from '../../db';
 import { products } from '../../db/schema/products';
 import { reviews } from '../../db/schema/reviews';
@@ -33,7 +33,7 @@ export async function quizRoutes(app: FastifyInstance) {
         const counts = await db
           .select({ productId: reviews.productId, count: count() })
           .from(reviews)
-          .where(inArray(reviews.productId, productIds))
+          .where(and(inArray(reviews.productId, productIds), eq(reviews.status, 'APPROVED')))
           .groupBy(reviews.productId);
 
         reviewCounts = Object.fromEntries(counts.map(r => [r.productId, r.count]));

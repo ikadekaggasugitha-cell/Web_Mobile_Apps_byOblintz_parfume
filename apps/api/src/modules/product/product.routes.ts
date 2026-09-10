@@ -140,6 +140,7 @@ export async function productRoutes(app: FastifyInstance) {
       ? await db
           .select({ productId: reviews.productId, count: count() })
           .from(reviews)
+          .where(and(inArray(reviews.productId, productIds), eq(reviews.status, 'APPROVED')))
           .groupBy(reviews.productId)
       : [];
 
@@ -250,6 +251,7 @@ export async function productRoutes(app: FastifyInstance) {
       ? await db
           .select({ productId: reviews.productId, count: count() })
           .from(reviews)
+          .where(and(inArray(reviews.productId, productIds), eq(reviews.status, 'APPROVED')))
           .groupBy(reviews.productId)
       : [];
 
@@ -450,6 +452,7 @@ export async function productRoutes(app: FastifyInstance) {
       ? await db
           .select({ productId: reviews.productId, count: count() })
           .from(reviews)
+          .where(and(inArray(reviews.productId, relatedIds), eq(reviews.status, 'APPROVED')))
           .groupBy(reviews.productId)
       : [];
 
@@ -612,6 +615,7 @@ export async function productRoutes(app: FastifyInstance) {
       ? await db
           .select({ productId: reviews.productId, count: count() })
           .from(reviews)
+          .where(and(inArray(reviews.productId, productIds), eq(reviews.status, 'APPROVED')))
           .groupBy(reviews.productId)
       : [];
 

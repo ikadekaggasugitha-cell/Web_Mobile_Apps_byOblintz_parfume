@@ -130,14 +130,15 @@ describe('report module', () => {
         .mockReturnValueOnce(chain)                // call 3: Q3 non-terminal
         .mockResolvedValueOnce([{ count: 200 }]);  // call 4: Q4 terminal
       chain.where
-        .mockResolvedValueOnce([{ count: 50 }])    // Q2
-        .mockResolvedValueOnce([{ count: 200 }])   // Q3
-        .mockResolvedValueOnce([{ count: 10 }])    // Q5
-        .mockResolvedValueOnce([{ total: 5000000 }]); // Q6
+        .mockResolvedValueOnce([{ count: 50 }])    // Q2 ordersThisMonth
+        .mockResolvedValueOnce([{ count: 200 }])   // Q3 totalProducts
+        .mockResolvedValueOnce([{ count: 10 }])    // Q5 totalSubscriptions
+        .mockResolvedValueOnce([{ total: 5000000 }]) // Q6 revenueThisMonth
+        .mockResolvedValueOnce([{ gross: 5000000, discount: 0, shipping: 0, total: 5000000, orderCount: 100 }]); // Q7 revenueTotals
       chain.limit
-        .mockResolvedValueOnce([{ id: 'o1', orderNumber: 'ORD-001', status: 'PAID', totalAmount: 250000, createdAt: '2026-08-10', user: { name: 'Budi', email: 'budi@example.com' } }]) // Q7
-        .mockResolvedValueOnce([{ productId: 'p1', count: 5, totalQty: 12 }]); // Q8
-      // Q9 (sequential): .select({...}).from(products).where(inArray(...)) -> terminal .where()
+        .mockResolvedValueOnce([{ id: 'o1', orderNumber: 'ORD-001', status: 'PAID', totalAmount: 250000, createdAt: '2026-08-10', user: { name: 'Budi', email: 'budi@example.com' } }]) // Q8 recentOrders
+        .mockResolvedValueOnce([{ productId: 'p1', count: 5, totalQty: 12 }]); // Q9 topProducts
+      // Q10 (sequential): .select({...}).from(products).where(inArray(...)) -> terminal .where()
       chain.where.mockResolvedValueOnce([{ id: 'p1', name: 'Amber', price: 250000 }]);
 
       const res = await app.inject({
@@ -185,11 +186,11 @@ describe('report module', () => {
 
   describe('GET /api/reports/sales', () => {
     it('groups sales by day', async () => {
-      // Route: .select({...}).from(orders).where(and(...)).orderBy(sql`...`) -> terminal .orderBy()
+      // Grouping is done in SQL; the query returns pre-aggregated bucket rows
+      // ({date, orders, revenue, gross, discount}). Terminal at .orderBy().
       chain.orderBy.mockResolvedValueOnce([
-        { createdAt: '2026-08-10T10:00:00.000Z', totalAmount: 100000, status: 'PAID' },
-        { createdAt: '2026-08-10T12:00:00.000Z', totalAmount: 200000, status: 'DELIVERED' },
-        { createdAt: '2026-08-11T09:00:00.000Z', totalAmount: 150000, status: 'PAID' },
+        { date: '2026-08-10', orders: 2, revenue: 300000, gross: 300000, discount: 0 },
+        { date: '2026-08-11', orders: 1, revenue: 150000, gross: 150000, discount: 0 },
       ]);
 
       const res = await app.inject({
@@ -243,22 +244,17 @@ describe('report module', () => {
   describe('GET /api/reports/products', () => {
     it('returns product stats and top sellers', async () => {
       // Promise.all([
-      //   Q1: .select({count:count()}).from(products) -> terminal .from()
-      //   Q2: .select({count:count()}).from(products).where(eq(products.status, 'ACTIVE')) -> terminal .where()
-      //   Q3: .select({count:count()}).from(products).where(and(...lte...gt...)) -> terminal .where()
-      //   Q4: .select({count:count()}).from(products).where(eq(products.stock, 0)) -> terminal .where()
-      //   Q5: .select({...}).from(orderItems).groupBy(...).orderBy(...).limit(10) -> terminal .limit()
+      //   Q1 statsRows: .select({total,active,lowStock,outOfStock}).from(products) -> terminal .from()
+      //   Q2 topByRevenue: .from(orderItems).innerJoin().leftJoin().where().groupBy().orderBy().limit(10) -> terminal .limit()
+      //   Q3 byCategory: .from(orderItems).innerJoin().leftJoin().leftJoin().where().groupBy().orderBy() -> terminal .orderBy()
       // ])
-      // Order of terminal calls: from, where, where, where, limit
-      chain.from
-        .mockResolvedValueOnce([{ count: 50 }]); // Q1
-      chain.where
-        .mockResolvedValueOnce([{ count: 50 }])  // Q2
-        .mockResolvedValueOnce([{ count: 0 }])    // Q3
-        .mockResolvedValueOnce([{ count: 0 }]);   // Q4
-      chain.limit.mockResolvedValueOnce([{ productId: 'p1', totalQty: 30, count: 10 }]); // Q5
-      // Q6 (sequential): .select({...}).from(products).where(inArray(...)) -> terminal .where()
-      chain.where.mockResolvedValueOnce([{ id: 'p1', name: 'Amber', price: 250000, stock: 8 }]);
+      chain.from.mockResolvedValueOnce([{ total: 50, active: 45, lowStock: 3, outOfStock: 2 }]); // Q1
+      chain.orderBy
+        .mockReturnValueOnce(chain) // Q2 .orderBy() (non-terminal, before .limit)
+        .mockResolvedValueOnce([{ categoryId: 'c1', name: 'Parfum', revenue: 500000, qty: 30 }]); // Q3 terminal
+      chain.limit.mockResolvedValueOnce([
+        { productId: 'p1', name: 'Amber', revenue: 500000, qty: 30, orderCount: 10 },
+      ]); // Q2 terminal
 
       const res = await app.inject({
         method: 'GET',
@@ -269,58 +265,56 @@ describe('report module', () => {
       expect(res.statusCode).toBe(200);
       const data = res.json().data;
       expect(data.stats.totalProducts).toBe(50);
-      expect(data.topSelling[0]).toMatchObject({ id: 'p1', totalSold: 30, orderCount: 10 });
+      expect(data.topProducts[0]).toMatchObject({ productId: 'p1', qty: 30, orderCount: 10 });
     });
   });
 
-  describe('GET /api/reports/users', () => {
-    it('returns user stats with a conversion rate', async () => {
-      // Promise.all([
-      //   Q1: .select({count:count()}).from(users) -> terminal .from()
-      //   Q2: .select({count:count()}).from(users).where(gte(...)) -> terminal .where()
-      // ])
-      // chain.from: call 1 (Q1 terminal), call 2 (Q2 non-terminal), call 3 (Q3 terminal), call 4 (Q4 non-terminal)
-      chain.from
-        .mockResolvedValueOnce([{ count: 100 }])  // call 1: Q1 terminal
-        .mockReturnValueOnce(chain);               // call 2: Q2 non-terminal
+  describe('GET /api/reports/customers', () => {
+    // getCustomerReport Promise.all order:
+    //   Q1 totalUsers      .from(users)                         -> terminal .from()
+    //   Q2 newUsersInRange .from(users).where(and(...))         -> terminal .where()
+    //   Q3 usersWithOrders .from(orders).where(paid)            -> terminal .where()
+    //   Q4 subsByStatus    .from(subscriptions).groupBy(...)    -> terminal .groupBy()
+    //   Q5 new-vs-returning db.execute(sql`...`)                -> terminal db.execute
+    //   Q6 topCustomers    .from(orders).innerJoin().where().groupBy().orderBy().limit(10) -> terminal .limit()
+    it('returns customer stats with a conversion rate', async () => {
+      chain.from.mockResolvedValueOnce([{ count: 100 }]);        // Q1 totalUsers
       chain.where
-        .mockResolvedValueOnce([{ count: 100 }]); // Q2
-      // Q3 (sequential): .select({count: sql`count(distinct ...)`}).from(orders) -> terminal .from()
-      chain.from.mockResolvedValueOnce([{ count: 100 }]); // call 3: Q3 terminal
-      // Q4 (sequential): .select({count: sql`count(distinct ...)`}).from(subscriptions).where(eq(...)) -> terminal .where()
-      chain.where.mockResolvedValueOnce([{ count: 100 }]);
+        .mockResolvedValueOnce([{ count: 20 }])                  // Q2 newUsersInRange
+        .mockResolvedValueOnce([{ count: 100 }]);                // Q3 usersWithOrders
+      chain.groupBy.mockResolvedValueOnce([]);                   // Q4 subsByStatus
+      db.execute.mockResolvedValueOnce([{ new_customers: 40, returning_customers: 60 }]); // Q5
+      chain.limit.mockResolvedValueOnce([]);                     // Q6 topCustomers
 
       const res = await app.inject({
         method: 'GET',
-        url: '/api/reports/users',
+        url: '/api/reports/customers',
         headers: adminHeader(app),
       });
 
       expect(res.statusCode).toBe(200);
       const data = res.json().data;
-      expect(data.totalUsers).toBe(100);
-      expect(data.conversionRate).toBe(100);
+      expect(data.stats.totalUsers).toBe(100);
+      expect(data.stats.conversionRate).toBe(100);
     });
 
-    it('reports a 0% conversion rate when there are no users', async () => {
-      chain.from
-        .mockResolvedValueOnce([{ count: 0 }])  // call 1: Q1 terminal
-        .mockReturnValueOnce(chain);             // call 2: Q2 non-terminal
+    it('reports a 0% conversion rate when there are no customers', async () => {
+      chain.from.mockResolvedValueOnce([{ count: 0 }]);          // Q1
       chain.where
-        .mockResolvedValueOnce([{ count: 0 }]); // Q2
-      // Q3: terminal .from()
-      chain.from.mockResolvedValueOnce([{ count: 0 }]); // call 3: Q3 terminal
-      // Q4: terminal .where()
-      chain.where.mockResolvedValueOnce([{ count: 0 }]);
+        .mockResolvedValueOnce([{ count: 0 }])                   // Q2
+        .mockResolvedValueOnce([{ count: 0 }]);                  // Q3
+      chain.groupBy.mockResolvedValueOnce([]);                   // Q4
+      db.execute.mockResolvedValueOnce([{ new_customers: 0, returning_customers: 0 }]); // Q5
+      chain.limit.mockResolvedValueOnce([]);                     // Q6
 
       const res = await app.inject({
         method: 'GET',
-        url: '/api/reports/users',
+        url: '/api/reports/customers',
         headers: adminHeader(app),
       });
 
       expect(res.statusCode).toBe(200);
-      expect(res.json().data.conversionRate).toBe(0);
+      expect(res.json().data.stats.conversionRate).toBe(0);
     });
   });
 });

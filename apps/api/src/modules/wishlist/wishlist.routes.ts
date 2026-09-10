@@ -59,7 +59,7 @@ export async function wishlistRoutes(app: FastifyInstance) {
             count: count(),
           })
           .from(reviews)
-          .where(inArray(reviews.productId, productIds))
+          .where(and(inArray(reviews.productId, productIds), eq(reviews.status, 'APPROVED')))
           .groupBy(reviews.productId)
       : [];
 
