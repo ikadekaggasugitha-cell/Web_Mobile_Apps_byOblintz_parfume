@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify';
-import { eq, and, count } from 'drizzle-orm';
+import { eq, and, count, inArray } from 'drizzle-orm';
 import { db } from '../../db';
 import { subscriptions } from '../../db/schema/subscriptions';
 import { products } from '../../db/schema/products';
@@ -74,12 +74,14 @@ export async function subscriptionRoutes(app: FastifyInstance) {
         });
       }
 
-      // Cek user sudah punya subscription aktif untuk produk ini
+      // Cek user sudah punya subscription hidup (ACTIVE atau PAUSED) untuk
+      // produk ini. PAUSED tetap langganan berjalan, jadi harus ikut memblok
+      // pembuatan duplikat — bukan hanya ACTIVE.
       const [existing] = await db.query.subscriptions.findMany({
         where: and(
           eq(subscriptions.userId, request.userId!),
           eq(subscriptions.productId, input.productId),
-          eq(subscriptions.status, 'ACTIVE'),
+          inArray(subscriptions.status, ['ACTIVE', 'PAUSED']),
         ),
         limit: 1,
       });

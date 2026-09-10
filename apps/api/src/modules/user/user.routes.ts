@@ -8,6 +8,7 @@ import { subscriptions } from '../../db/schema/subscriptions';
 import { reviews } from '../../db/schema/reviews';
 import { requireAuth, requireAdmin } from '../../middleware/auth';
 import { handleRouteError } from '../../lib/errors';
+import { redis } from '../../config/redis';
 
 export async function userRoutes(app: FastifyInstance) {
   // ==================== GET PROFILE ====================
@@ -114,6 +115,10 @@ export async function userRoutes(app: FastifyInstance) {
 
     const passwordHash = await bcrypt.hash(newPassword, 12);
     await db.update(users).set({ passwordHash }).where(eq(users.id, request.userId!));
+
+    // Revoke the existing session so a stolen refresh token can't outlive a
+    // password change (consistent with the reset-password flow).
+    await redis.del(`refresh:${request.userId}`);
 
     return reply.status(200).send({
       success: true,
@@ -535,6 +540,12 @@ export async function userRoutes(app: FastifyInstance) {
     const [updated] = await db.update(users).set({
       banned: !existing.banned,
     }).where(eq(users.id, id)).returning();
+
+    // On ban, kill the user's session immediately so the block takes effect at
+    // the session store, not only at the next refresh attempt.
+    if (updated.banned) {
+      await redis.del(`refresh:${id}`);
+    }
 
     return reply.status(200).send({
       success: true,

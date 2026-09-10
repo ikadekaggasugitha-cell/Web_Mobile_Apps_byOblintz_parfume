@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vites
 import Fastify, { type FastifyInstance } from 'fastify';
 import jwt from '@fastify/jwt';
 
-const { chain, returningResult, db, bcrypt } = vi.hoisted(() => {
+const { chain, returningResult, db, bcrypt, redis } = vi.hoisted(() => {
   const chain = {
     from: vi.fn(),
     where: vi.fn(),
@@ -50,11 +50,14 @@ const { chain, returningResult, db, bcrypt } = vi.hoisted(() => {
 
   const bcrypt = { hash: vi.fn(), compare: vi.fn() };
 
-  return { chain, returningResult, db, bcrypt };
+  const redis = { del: vi.fn(), get: vi.fn(), set: vi.fn() };
+
+  return { chain, returningResult, db, bcrypt, redis };
 });
 
 vi.mock('@/db', () => ({ db }));
 vi.mock('bcrypt', () => ({ default: bcrypt, ...bcrypt }));
+vi.mock('@/config/redis', () => ({ redis }));
 
 import { userRoutes } from '@/modules/user/user.routes';
 
@@ -186,6 +189,8 @@ describe('user module', () => {
 
       expect(res.statusCode).toBe(200);
       expect(db.update).toHaveBeenCalled();
+      // Password change must revoke the existing session.
+      expect(redis.del).toHaveBeenCalledWith(`refresh:${USER_ID}`);
     });
 
     it('returns 400 when fields are missing', async () => {
@@ -372,6 +377,42 @@ describe('user module', () => {
       });
 
       expect(res.statusCode).toBe(404);
+    });
+  });
+
+  describe('PUT /api/users/admin/:id/ban', () => {
+    function adminHeader(a: FastifyInstance) {
+      return { authorization: `Bearer ${a.jwt.sign({ id: 'admin-1', role: 'ADMIN' })}` };
+    }
+
+    it('bans a user and revokes their session', async () => {
+      db.query.users.findMany.mockResolvedValueOnce([{ id: 'target-9', role: 'USER', banned: false }]);
+      returningResult.mockResolvedValueOnce([{ id: 'target-9', name: 'X', email: 'x@e.com', banned: true }]);
+
+      const res = await app.inject({
+        method: 'PUT',
+        url: '/api/users/admin/target-9/ban',
+        headers: adminHeader(app),
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json().data.banned).toBe(true);
+      expect(redis.del).toHaveBeenCalledWith('refresh:target-9');
+    });
+
+    it('does not revoke a session when unbanning', async () => {
+      db.query.users.findMany.mockResolvedValueOnce([{ id: 'target-9', role: 'USER', banned: true }]);
+      returningResult.mockResolvedValueOnce([{ id: 'target-9', name: 'X', email: 'x@e.com', banned: false }]);
+
+      const res = await app.inject({
+        method: 'PUT',
+        url: '/api/users/admin/target-9/ban',
+        headers: adminHeader(app),
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json().data.banned).toBe(false);
+      expect(redis.del).not.toHaveBeenCalled();
     });
   });
 });

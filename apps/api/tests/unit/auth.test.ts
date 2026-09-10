@@ -216,6 +216,22 @@ describe('auth module (TC-001 – TC-005)', () => {
       expect(bcrypt.compare).toHaveBeenCalledWith('password123', 'stored-hash');
     });
 
+    it('returns 403 when the account is banned (even with a valid password)', async () => {
+      mockLimit.mockResolvedValue([{ ...USER, banned: true }]);
+      bcrypt.compare.mockResolvedValue(true);
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/auth/login',
+        payload: { email: USER.email, password: 'password123' },
+      });
+
+      expect(res.statusCode).toBe(403);
+      expect(res.json().error.code).toBe('ACCOUNT_BANNED');
+      // No session issued for a banned user.
+      expect(redis.set).not.toHaveBeenCalled();
+    });
+
     it('returns 401 when the email is not found', async () => {
       mockLimit.mockResolvedValue([]);
 
@@ -298,6 +314,8 @@ describe('auth module (TC-001 – TC-005)', () => {
       expect(res.statusCode).toBe(200);
       expect(db.update).toHaveBeenCalled();
       expect(redis.del).toHaveBeenCalledWith(`reset:${USER.id}`);
+      // Existing sessions must be revoked on password reset.
+      expect(redis.del).toHaveBeenCalledWith(`refresh:${USER.id}`);
     });
 
     it('rejects reset when no token is stored (expired)', async () => {
@@ -345,6 +363,22 @@ describe('auth module (TC-001 – TC-005)', () => {
       expect(res.statusCode).toBe(200);
       expect(res.json().data.accessToken).toBeTruthy();
       expect(res.json().data.refreshToken).toBeTruthy();
+    });
+
+    it('returns 403 and revokes the session when the account is banned', async () => {
+      const refreshToken = app.jwt.sign({ id: USER.id });
+      redis.get.mockResolvedValue(refreshToken);
+      mockLimit.mockResolvedValue([{ ...USER, banned: true }]);
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/auth/refresh',
+        payload: { refreshToken },
+      });
+
+      expect(res.statusCode).toBe(403);
+      expect(res.json().error.code).toBe('ACCOUNT_BANNED');
+      expect(redis.del).toHaveBeenCalledWith(`refresh:${USER.id}`);
     });
 
     it('returns 400 when refresh token is missing', async () => {

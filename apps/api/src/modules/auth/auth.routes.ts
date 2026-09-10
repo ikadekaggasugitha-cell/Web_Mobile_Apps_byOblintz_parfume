@@ -152,6 +152,14 @@ export async function authRoutes(app: FastifyInstance) {
         })
       }
 
+      // Checked after password so a ban is not disclosed to unauthenticated callers.
+      if (user.banned) {
+        return reply.status(403).send({
+          success: false,
+          error: { code: 'ACCOUNT_BANNED', message: 'Akun Anda telah diblokir' },
+        })
+      }
+
       const accessToken = app.jwt.sign(
         { id: user.id, email: user.email, role: user.role },
         { expiresIn: '15m' }
@@ -222,6 +230,15 @@ export async function authRoutes(app: FastifyInstance) {
         return reply.status(401).send({
           success: false,
           error: { code: 'UNAUTHORIZED', message: 'User tidak ditemukan' },
+        })
+      }
+
+      // A banned user must not be able to extend an existing session.
+      if (user.banned) {
+        await redis.del(`refresh:${user.id}`)
+        return reply.status(403).send({
+          success: false,
+          error: { code: 'ACCOUNT_BANNED', message: 'Akun Anda telah diblokir' },
         })
       }
 
@@ -377,6 +394,9 @@ export async function authRoutes(app: FastifyInstance) {
       await db.update(users).set({ passwordHash }).where(eq(users.id, userId))
 
       await redis.del(`reset:${userId}`)
+      // Revoke any existing session so a compromised refresh token can't survive
+      // the password reset.
+      await redis.del(`refresh:${userId}`)
 
       return reply.status(200).send({
         success: true,
