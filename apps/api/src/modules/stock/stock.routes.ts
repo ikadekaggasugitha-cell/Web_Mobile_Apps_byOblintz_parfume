@@ -208,7 +208,10 @@ export async function stockRoutes(app: FastifyInstance) {
         });
       }
 
-      const quantityChange = input.type === 'RESTOCK' ? input.quantity : -input.quantity;
+      // RESTOCK and RETURN add stock back to inventory; only ADJUSTMENT removes it.
+      const quantityChange = ['RESTOCK', 'RETURN'].includes(input.type)
+        ? input.quantity
+        : -input.quantity;
 
       if (product.stock + quantityChange < 0) {
         return reply.status(400).send({

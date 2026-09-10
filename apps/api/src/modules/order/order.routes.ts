@@ -23,6 +23,28 @@ const updateOrderStatusSchema = z.object({
   courier: z.string().optional(),
 });
 
+type OrderTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+// Return every item's stock (reserved at checkout) back to inventory and log
+// the movement. Shared by user self-cancel and admin cancel-via-status so the
+// two paths can never diverge on inventory accounting. Must run inside a tx.
+async function restockOrderItems(tx: OrderTx, orderId: string) {
+  const items = await tx.select().from(orderItems).where(eq(orderItems.orderId, orderId));
+  for (const item of items) {
+    await tx.update(products)
+      .set({ stock: sql`${products.stock} + ${item.quantity}` })
+      .where(eq(products.id, item.productId));
+
+    await tx.insert(stockMovements).values({
+      productId: item.productId,
+      type: 'CANCEL',
+      quantity: item.quantity,
+      referenceId: orderId,
+      referenceType: 'ORDER',
+    });
+  }
+}
+
 export async function orderRoutes(app: FastifyInstance) {
   app.get('/', {
     preHandler: [requireAuth],
@@ -172,22 +194,8 @@ export async function orderRoutes(app: FastifyInstance) {
       });
     }
 
-    const items = await db.select().from(orderItems).where(eq(orderItems.orderId, id));
-
     await db.transaction(async (tx) => {
-      for (const item of items) {
-        await tx.update(products)
-          .set({ stock: sql`${products.stock} + ${item.quantity}` })
-          .where(eq(products.id, item.productId));
-
-        await tx.insert(stockMovements).values({
-          productId: item.productId,
-          type: 'CANCEL',
-          quantity: item.quantity,
-          referenceId: id,
-          referenceType: 'ORDER',
-        });
-      }
+      await restockOrderItems(tx, id);
 
       await tx.update(orders)
         .set({ status: 'CANCELLED', cancelledAt: new Date() })
@@ -392,10 +400,27 @@ export async function orderRoutes(app: FastifyInstance) {
     if (status === 'DELIVERED') updateData.deliveredAt = new Date();
     if (status === 'CANCELLED') updateData.cancelledAt = new Date();
 
-    const [updated] = await db.update(orders)
-      .set(updateData)
-      .where(eq(orders.id, id))
-      .returning();
+    // Cancelling an order that already reserved stock at checkout must return
+    // that stock — same accounting as the user self-cancel path. Guard against
+    // re-cancelling an already-cancelled order so stock is never restocked twice.
+    const shouldRestock = status === 'CANCELLED' && order.status !== 'CANCELLED';
+
+    let updated;
+    if (shouldRestock) {
+      updated = await db.transaction(async (tx) => {
+        await restockOrderItems(tx, id);
+        const [row] = await tx.update(orders)
+          .set(updateData)
+          .where(eq(orders.id, id))
+          .returning();
+        return row;
+      });
+    } else {
+      [updated] = await db.update(orders)
+        .set(updateData)
+        .where(eq(orders.id, id))
+        .returning();
+    }
 
     return reply.status(200).send({ success: true, data: updated });
   });

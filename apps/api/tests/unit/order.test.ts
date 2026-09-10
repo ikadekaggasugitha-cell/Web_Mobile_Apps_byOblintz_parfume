@@ -336,6 +336,43 @@ describe('order module (TC-030 – TC-033)', () => {
       expect(res.json().data.status).toBe('SHIPPED');
     });
 
+    it('restocks inventory when an admin cancels an order', async () => {
+      // Q1: select().from(orders).where(...).limit(1) → terminal .limit(1)
+      // Q2 (inside tx): select().from(orderItems).where(...) → terminal .where()
+      chain.limit.mockResolvedValueOnce([makeOrder({ status: 'PAID' })]);
+      chain.where.mockReturnValueOnce(chain);    // Q1 .where() non-terminal
+      chain.where.mockResolvedValueOnce([{ id: 'item-1', productId: 'prod-1', quantity: 2 }]);  // Q2 restock items
+      returningResult.mockResolvedValueOnce([makeOrder({ status: 'CANCELLED' })]);  // tx.update(orders).returning()
+
+      const res = await app.inject({
+        method: 'PUT',
+        url: '/api/orders/admin/order-1/status',
+        headers: adminHeader(app),
+        payload: { status: 'CANCELLED' },
+      });
+
+      expect(res.statusCode).toBe(200);
+      // Cancelling from a non-cancelled state must restock inside a transaction.
+      expect(db.transaction).toHaveBeenCalled();
+    });
+
+    it('does not restock when the order is already cancelled', async () => {
+      chain.limit.mockResolvedValueOnce([makeOrder({ status: 'CANCELLED' })]);
+      returningResult.mockResolvedValueOnce([makeOrder({ status: 'CANCELLED' })]);
+
+      const res = await app.inject({
+        method: 'PUT',
+        url: '/api/orders/admin/order-1/status',
+        headers: adminHeader(app),
+        payload: { status: 'CANCELLED' },
+      });
+
+      expect(res.statusCode).toBe(200);
+      // Already cancelled → no double restock; plain update, no transaction.
+      expect(db.transaction).not.toHaveBeenCalled();
+      expect(db.update).toHaveBeenCalled();
+    });
+
     it('returns 404 when updating a missing order', async () => {
       chain.limit.mockResolvedValueOnce([]);
 
