@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vites
 import Fastify, { type FastifyInstance } from 'fastify';
 import jwt from '@fastify/jwt';
 
-const { chain, returningResult, db } = vi.hoisted(() => {
+const { chain, returningResult, insertReturn, db } = vi.hoisted(() => {
   const chain = {
     from: vi.fn(),
     where: vi.fn(),
@@ -24,13 +24,16 @@ const { chain, returningResult, db } = vi.hoisted(() => {
 
   const returningResult = vi.fn();
 
+  const insertReturn = () => ({
+    values: vi.fn().mockReturnValue({
+      returning: returningResult,
+      onConflictDoNothing: vi.fn().mockReturnValue({ returning: returningResult }),
+    }),
+  });
+
   const db = {
     select: vi.fn().mockReturnValue(chain),
-    insert: vi.fn().mockReturnValue({
-      values: vi.fn().mockReturnValue({
-        returning: returningResult,
-      }),
-    }),
+    insert: vi.fn().mockReturnValue(insertReturn()),
     update: vi.fn().mockReturnValue({
       set: vi.fn().mockReturnValue({
         where: vi.fn().mockReturnValue({
@@ -45,7 +48,7 @@ const { chain, returningResult, db } = vi.hoisted(() => {
     transaction: vi.fn(),
   };
 
-  return { chain, returningResult, db };
+  return { chain, returningResult, insertReturn, db };
 });
 
 const redis = vi.hoisted(() => ({ get: vi.fn(), del: vi.fn() }));
@@ -104,15 +107,16 @@ function setupChainDefaults() {
   chain.leftJoin.mockReturnValue(chain);
   chain.groupBy.mockReturnValue(chain);
   db.select.mockReturnValue(chain);
-  db.insert.mockReturnValue({
-    values: vi.fn().mockReturnValue({ returning: returningResult }),
-  });
+  db.insert.mockReturnValue(insertReturn());
   db.update.mockReturnValue({
     set: vi.fn().mockReturnValue({
       where: vi.fn().mockReturnValue({ returning: returningResult }),
     }),
   });
   db.delete.mockReturnValue({ where: vi.fn() });
+  // Default: any .returning() (stock decrement, promo redemption/usage) succeeds.
+  // Tests queue mockResolvedValueOnce for the order insert and any failure paths.
+  returningResult.mockResolvedValue([{ id: 'stub' }]);
 }
 
 describe('checkout module (TC-030 – TC-033)', () => {
@@ -139,7 +143,7 @@ describe('checkout module (TC-030 – TC-033)', () => {
     db.transaction = vi.fn().mockImplementation(async (fn: Function) => {
       const tx = {
         select: vi.fn().mockReturnValue(chain),
-        insert: vi.fn().mockReturnValue({ values: vi.fn().mockReturnValue({ returning: returningResult }) }),
+        insert: vi.fn().mockReturnValue(insertReturn()),
         update: vi.fn().mockReturnValue({ set: vi.fn().mockReturnValue({ where: vi.fn().mockReturnValue({ returning: returningResult }) }) }),
         delete: vi.fn().mockReturnValue({ where: vi.fn() }),
       };
@@ -149,13 +153,10 @@ describe('checkout module (TC-030 – TC-033)', () => {
 
   describe('TC-030: POST /api/checkout (with saved address)', () => {
     it('creates an order and returns the summary', async () => {
-      // Q1: db.select({...}).from(products).where(...)  → terminal .where()
-      // Q4: tx.select({stock}).from(products).where(...).limit(1)  → terminal .limit(1)
       chain.where.mockResolvedValueOnce([
         { id: PID, name: 'Amber Noir', price: 250000, stock: 20 },
       ]);
       returningResult.mockResolvedValueOnce([{ id: 'order-1', orderNumber: 'ORD-TESTORDR' }]);
-      chain.limit.mockResolvedValueOnce([{ stock: 20 }]);
 
       const res = await app.inject({
         method: 'POST',
@@ -297,7 +298,6 @@ describe('checkout module (TC-030 – TC-033)', () => {
         { id: PID, name: 'Amber Noir', price: 250000, stock: 20 },
       ]);
       returningResult.mockResolvedValueOnce([{ id: 'order-1', orderNumber: 'ORD-TESTORDR' }]);
-      chain.limit.mockResolvedValueOnce([{ stock: 20 }]);
 
       const result = await processCheckout({ ...baseData, shippingMethod: 'express' });
 
@@ -310,7 +310,6 @@ describe('checkout module (TC-030 – TC-033)', () => {
         { id: PID, name: 'Amber Noir', price: 250000, stock: 20 },
       ]);
       returningResult.mockResolvedValueOnce([{ id: 'order-1', orderNumber: 'ORD-TESTORDR' }]);
-      chain.limit.mockResolvedValueOnce([{ stock: 20 }]);
 
       const result = await processCheckout({ ...baseData, shippingMethod: 'teleport' });
       expect(result.shippingFee).toBe(15000);
@@ -322,7 +321,6 @@ describe('checkout module (TC-030 – TC-033)', () => {
         { id: PID, name: 'Amber Noir', price: 250000, stock: 20 },
       ]);
       returningResult.mockResolvedValueOnce([{ id: 'order-1', orderNumber: 'ORD-TESTORDR' }]);
-      chain.limit.mockResolvedValueOnce([{ stock: 20 }]);
 
       const result = await processCheckout(baseData);
 
@@ -330,9 +328,6 @@ describe('checkout module (TC-030 – TC-033)', () => {
     });
 
     it('applies a capped percentage promo and increments usage', async () => {
-      // Q1: db.select({...}).from(products).where(...)  → terminal .where()
-      // Q2: db.select().from(promoCodes).where(...).limit(1)  → terminal .limit(1)
-      // Q4: tx.select({stock}).from(products).where(...).limit(1)  → terminal .limit(1)
       chain.where.mockResolvedValueOnce([
         { id: PID, name: 'Amber Noir', price: 250000, stock: 20 },
       ]);
@@ -340,7 +335,6 @@ describe('checkout module (TC-030 – TC-033)', () => {
         activePromo({ value: 50, maxDiscount: 100000 }),
       ]);
       returningResult.mockResolvedValueOnce([{ id: 'order-1', orderNumber: 'ORD-TESTORDR' }]);
-      chain.limit.mockResolvedValueOnce([{ stock: 20 }]);
 
       const result = await processCheckout({ ...baseData, promoCode: 'HEMAT10' });
 
@@ -355,7 +349,6 @@ describe('checkout module (TC-030 – TC-033)', () => {
         activePromo({ type: 'FIXED', value: 40000 }),
       ]);
       returningResult.mockResolvedValueOnce([{ id: 'order-1', orderNumber: 'ORD-TESTORDR' }]);
-      chain.limit.mockResolvedValueOnce([{ stock: 20 }]);
 
       const result = await processCheckout({ ...baseData, promoCode: 'HEMAT10' });
       expect(result.discount).toBe(40000);
@@ -369,7 +362,6 @@ describe('checkout module (TC-030 – TC-033)', () => {
         activePromo({ type: 'FREE_SHIPPING' }),
       ]);
       returningResult.mockResolvedValueOnce([{ id: 'order-1', orderNumber: 'ORD-TESTORDR' }]);
-      chain.limit.mockResolvedValueOnce([{ stock: 20 }]);
 
       const result = await processCheckout({ ...baseData, promoCode: 'HEMAT10' });
       expect(result.discount).toBe(15000);
@@ -383,7 +375,6 @@ describe('checkout module (TC-030 – TC-033)', () => {
         activePromo({ minOrder: 10000000 }),
       ]);
       returningResult.mockResolvedValueOnce([{ id: 'order-1', orderNumber: 'ORD-TESTORDR' }]);
-      chain.limit.mockResolvedValueOnce([{ stock: 20 }]);
 
       const result = await processCheckout({ ...baseData, promoCode: 'HEMAT10' });
 
@@ -398,7 +389,6 @@ describe('checkout module (TC-030 – TC-033)', () => {
         activePromo({ status: 'INACTIVE' }),
       ]);
       returningResult.mockResolvedValueOnce([{ id: 'order-1', orderNumber: 'ORD-TESTORDR' }]);
-      chain.limit.mockResolvedValueOnce([{ stock: 20 }]);
 
       const result = await processCheckout({ ...baseData, promoCode: 'HEMAT10' });
       expect(result.discount).toBe(0);
@@ -416,14 +406,42 @@ describe('checkout module (TC-030 – TC-033)', () => {
       await expect(processCheckout(baseData)).rejects.toThrow('tidak ditemukan');
     });
 
-    it('throws when stock is insufficient at decrement time', async () => {
+    it('throws when the atomic stock decrement affects no row (insufficient stock)', async () => {
       chain.where.mockResolvedValueOnce([
         { id: PID, name: 'Amber Noir', price: 250000, stock: 20 },
       ]);
-      returningResult.mockResolvedValueOnce([{ id: 'order-1', orderNumber: 'ORD-TESTORDR' }]);
-      chain.limit.mockResolvedValueOnce([{ stock: 0 }]);
+      returningResult
+        .mockResolvedValueOnce([{ id: 'order-1', orderNumber: 'ORD-TESTORDR' }]) // order insert
+        .mockResolvedValueOnce([]); // guarded stock update (stock >= qty) matched no row
 
       await expect(processCheckout(baseData)).rejects.toThrow('tidak mencukupi');
+    });
+
+    it('throws PROMO_ALREADY_USED when the per-user redemption conflicts', async () => {
+      chain.where.mockResolvedValueOnce([
+        { id: PID, name: 'Amber Noir', price: 250000, stock: 20 },
+      ]);
+      chain.limit.mockResolvedValueOnce([activePromo()]);
+      returningResult
+        .mockResolvedValueOnce([{ id: 'order-1', orderNumber: 'ORD-TESTORDR' }]) // order insert
+        .mockResolvedValueOnce([{ id: PID }])                                    // stock decrement ok
+        .mockResolvedValueOnce([]);                                             // redemption onConflictDoNothing → no row
+
+      await expect(processCheckout({ ...baseData, promoCode: 'HEMAT10' })).rejects.toThrow('sudah pernah Anda gunakan');
+    });
+
+    it('throws PROMO_LIMIT when the usage limit is exhausted concurrently', async () => {
+      chain.where.mockResolvedValueOnce([
+        { id: PID, name: 'Amber Noir', price: 250000, stock: 20 },
+      ]);
+      chain.limit.mockResolvedValueOnce([activePromo({ usageLimit: 1, usedCount: 0 })]);
+      returningResult
+        .mockResolvedValueOnce([{ id: 'order-1', orderNumber: 'ORD-TESTORDR' }]) // order insert
+        .mockResolvedValueOnce([{ id: PID }])                                    // stock decrement ok
+        .mockResolvedValueOnce([{ id: 'redeem-1' }])                             // redemption ok
+        .mockResolvedValueOnce([]);                                            // usage-limit guard matched no row
+
+      await expect(processCheckout({ ...baseData, promoCode: 'HEMAT10' })).rejects.toThrow('batas penggunaan');
     });
   });
 });

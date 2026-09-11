@@ -91,6 +91,7 @@ describe('auth module (TC-001 – TC-005)', () => {
   beforeAll(async () => {
     app = Fastify({ logger: false });
     await app.register(jwt, { secret: 'test-jwt-secret-min-32-characters!!' });
+    await app.register(jwt, { namespace: 'refresh', secret: 'test-refresh-secret-min-32-chars!!' });
     await app.register(authRoutes, { prefix: '/api/auth' });
     await app.ready();
   });
@@ -350,7 +351,7 @@ describe('auth module (TC-001 – TC-005)', () => {
   // ==================== REFRESH / ME / LOGOUT ====================
   describe('POST /refresh', () => {
     it('issues new tokens for a valid refresh token', async () => {
-      const refreshToken = app.jwt.sign({ id: USER.id });
+      const refreshToken = app.jwt.refresh.sign({ id: USER.id });
       redis.get.mockResolvedValue(refreshToken);
       mockLimit.mockResolvedValue([{ ...USER }]);
 
@@ -366,7 +367,7 @@ describe('auth module (TC-001 – TC-005)', () => {
     });
 
     it('returns 403 and revokes the session when the account is banned', async () => {
-      const refreshToken = app.jwt.sign({ id: USER.id });
+      const refreshToken = app.jwt.refresh.sign({ id: USER.id });
       redis.get.mockResolvedValue(refreshToken);
       mockLimit.mockResolvedValue([{ ...USER, banned: true }]);
 
@@ -393,7 +394,7 @@ describe('auth module (TC-001 – TC-005)', () => {
     });
 
     it('returns 401 when the stored token does not match', async () => {
-      const refreshToken = app.jwt.sign({ id: USER.id });
+      const refreshToken = app.jwt.refresh.sign({ id: USER.id });
       redis.get.mockResolvedValue('a-different-token');
 
       const res = await app.inject({
@@ -404,6 +405,19 @@ describe('auth module (TC-001 – TC-005)', () => {
 
       expect(res.statusCode).toBe(401);
       expect(res.json().error.code).toBe('UNAUTHORIZED');
+    });
+
+    it('rejects a refresh token used as an access token on a protected route', async () => {
+      // Signed under the refresh namespace, so requireAuth (access secret) must reject it.
+      const refreshToken = app.jwt.refresh.sign({ id: USER.id });
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/auth/me',
+        headers: { authorization: `Bearer ${refreshToken}` },
+      });
+
+      expect(res.statusCode).toBe(401);
     });
   });
 

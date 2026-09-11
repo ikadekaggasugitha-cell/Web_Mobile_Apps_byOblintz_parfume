@@ -76,3 +76,44 @@ export async function requireAdmin(
     });
   }
 }
+
+export async function requireSuperAdmin(
+  request: FastifyRequest,
+  reply: FastifyReply
+) {
+  try {
+    const token = request.headers.authorization?.replace('Bearer ', '');
+
+    if (!token) {
+      return reply.status(401).send({
+        success: false,
+        error: {
+          code: 'UNAUTHORIZED',
+          message: 'Token tidak diberikan',
+        },
+      });
+    }
+
+    const decoded = request.server.jwt.verify<{ id: string; role: string }>(token);
+
+    if (decoded.role !== 'SUPER_ADMIN') {
+      return reply.status(403).send({
+        success: false,
+        error: {
+          code: 'FORBIDDEN',
+          message: 'Akses super admin diperlukan',
+        },
+      });
+    }
+
+    request.userId = decoded.id;
+  } catch {
+    return reply.status(401).send({
+      success: false,
+      error: {
+        code: 'UNAUTHORIZED',
+        message: 'Token tidak valid atau kedaluwarsa',
+      },
+    });
+  }
+}

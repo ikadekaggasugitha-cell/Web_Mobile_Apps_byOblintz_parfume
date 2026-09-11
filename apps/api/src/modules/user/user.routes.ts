@@ -6,7 +6,7 @@ import { users, addresses } from '../../db/schema/users';
 import { orders } from '../../db/schema/orders';
 import { subscriptions } from '../../db/schema/subscriptions';
 import { reviews } from '../../db/schema/reviews';
-import { requireAuth, requireAdmin } from '../../middleware/auth';
+import { requireAuth, requireAdmin, requireSuperAdmin } from '../../middleware/auth';
 import { handleRouteError } from '../../lib/errors';
 import { redis } from '../../config/redis';
 
@@ -459,7 +459,7 @@ export async function userRoutes(app: FastifyInstance) {
 
   // ==================== ADMIN: UPDATE USER ROLE ====================
   app.put('/admin/:id/role', {
-    preHandler: [requireAdmin],
+    preHandler: [requireSuperAdmin],
   }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const { role } = request.body as { role: string };
@@ -483,11 +483,11 @@ export async function userRoutes(app: FastifyInstance) {
       });
     }
 
-    // Prevent self-promotion to SUPER_ADMIN
-    if (request.userId === id && role === 'SUPER_ADMIN' && existing.role !== 'SUPER_ADMIN') {
+    // Prevent a super admin from demoting their own account (self-lockout).
+    if (request.userId === id && role !== 'SUPER_ADMIN') {
       return reply.status(403).send({
         success: false,
-        error: { code: 'FORBIDDEN', message: 'Tidak bisa promosi diri sendiri ke Super Admin' },
+        error: { code: 'FORBIDDEN', message: 'Tidak bisa menurunkan role diri sendiri' },
       });
     }
 

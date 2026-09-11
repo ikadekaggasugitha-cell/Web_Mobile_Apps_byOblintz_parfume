@@ -1,6 +1,6 @@
 import { db } from '../../db';
-import { products, orders, orderItems, promoCodes, giftWrappings, stockMovements } from '../../db/schema';
-import { eq, and, gte, inArray, sql } from 'drizzle-orm';
+import { products, orders, orderItems, promoCodes, promoRedemptions, giftWrappings, stockMovements } from '../../db/schema';
+import { eq, and, or, gte, lt, isNull, inArray, sql } from 'drizzle-orm';
 import { redis } from '../../config/redis';
 import { nanoid } from 'nanoid';
 import { AppError } from '../../lib/errors';
@@ -42,7 +42,6 @@ export async function processCheckout(data: CheckoutData) {
     id: products.id,
     name: products.name,
     price: products.price,
-    stock: products.stock,
   })
     .from(products)
     .where(and(inArray(products.id, productIds), eq(products.status, 'ACTIVE')));
@@ -131,19 +130,16 @@ export async function processCheckout(data: CheckoutData) {
         giftWrapPrice: item.giftWrapPrice.toString(),
       });
 
-      // Check stock first
-      const [currentProduct] = await tx.select({ stock: products.stock })
-        .from(products)
-        .where(eq(products.id, item.productId))
-        .limit(1);
+      // Decrement stock atomically: the guard prevents a check-then-write race
+      // where two concurrent checkouts could both pass a prior stock check.
+      const [decremented] = await tx.update(products)
+        .set({ stock: sql`${products.stock} - ${item.quantity}` })
+        .where(and(eq(products.id, item.productId), gte(products.stock, item.quantity)))
+        .returning({ id: products.id });
 
-      if (!currentProduct || currentProduct.stock < item.quantity) {
+      if (!decremented) {
         throw new AppError('INSUFFICIENT_STOCK', `Stok produk ${item.productId} tidak mencukupi`, 400);
       }
-
-      await tx.update(products)
-        .set({ stock: sql`${products.stock} - ${item.quantity}` })
-        .where(eq(products.id, item.productId));
 
       await tx.insert(stockMovements).values({
         productId: item.productId,
@@ -155,9 +151,29 @@ export async function processCheckout(data: CheckoutData) {
     }
 
     if (promoRecord) {
-      await tx.update(promoCodes)
+      // Enforce the per-user single redemption atomically via the unique constraint.
+      const [redeemed] = await tx.insert(promoRedemptions)
+        .values({ userId: data.userId, promoId: promoRecord.id, orderId: newOrder.id })
+        .onConflictDoNothing({ target: [promoRedemptions.userId, promoRedemptions.promoId] })
+        .returning({ id: promoRedemptions.id });
+
+      if (!redeemed) {
+        throw new AppError('PROMO_ALREADY_USED', 'Kode promo sudah pernah Anda gunakan', 400);
+      }
+
+      // Enforce the global usage limit atomically: the guard blocks concurrent
+      // checkouts from pushing usedCount past usageLimit.
+      const [bumped] = await tx.update(promoCodes)
         .set({ usedCount: sql`${promoCodes.usedCount} + 1` })
-        .where(eq(promoCodes.id, promoRecord.id));
+        .where(and(
+          eq(promoCodes.id, promoRecord.id),
+          or(isNull(promoCodes.usageLimit), lt(promoCodes.usedCount, promoCodes.usageLimit)),
+        ))
+        .returning({ id: promoCodes.id });
+
+      if (!bumped) {
+        throw new AppError('PROMO_LIMIT', 'Kode promo sudah mencapai batas penggunaan', 400);
+      }
     }
 
     const hasGiftWrap = orderItemsData.some((i) => i.giftWrap);

@@ -152,6 +152,13 @@ async function bootstrap() {
     secret: config.jwt.accessSecret,
   });
 
+  // Refresh tokens are signed/verified under a separate secret so a refresh
+  // token can never be replayed as an access token on requireAuth routes.
+  await server.register(jwt, {
+    namespace: 'refresh',
+    secret: config.jwt.refreshSecret,
+  });
+
   await server.register(rateLimit, {
     max: 100,
     timeWindow: '1 minute',

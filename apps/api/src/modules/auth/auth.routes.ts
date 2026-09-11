@@ -33,6 +33,13 @@ async function checkRateLimit(key: string, maxRequests: number): Promise<boolean
 }
 
 export async function authRoutes(app: FastifyInstance) {
+  // The 'refresh' JWT namespace (registered in server.ts) signs/verifies refresh
+  // tokens with a separate secret. @fastify/jwt exposes it at app.jwt.refresh at
+  // runtime but does not type it, so narrow it to the sync sign/verify we use.
+  const refreshJwt = (app.jwt as unknown as {
+    refresh: Pick<typeof app.jwt, 'sign' | 'verify'>;
+  }).refresh;
+
   // ==================== REGISTER ====================
   app.post('/register', {
     schema: {
@@ -82,7 +89,7 @@ export async function authRoutes(app: FastifyInstance) {
         { expiresIn: '15m' }
       )
 
-      const refreshToken = app.jwt.sign(
+      const refreshToken = refreshJwt.sign(
         { id: user.id },
         { expiresIn: '7d' }
       )
@@ -165,7 +172,7 @@ export async function authRoutes(app: FastifyInstance) {
         { expiresIn: '15m' }
       )
 
-      const refreshToken = app.jwt.sign(
+      const refreshToken = refreshJwt.sign(
         { id: user.id },
         { expiresIn: '7d' }
       )
@@ -214,7 +221,7 @@ export async function authRoutes(app: FastifyInstance) {
         })
       }
 
-      const decoded = app.jwt.verify<{ id: string }>(refreshToken)
+      const decoded = refreshJwt.verify<{ id: string }>(refreshToken)
 
       const storedToken = await redis.get(`refresh:${decoded.id}`)
       if (storedToken !== refreshToken) {
@@ -247,7 +254,7 @@ export async function authRoutes(app: FastifyInstance) {
         { expiresIn: '15m' }
       )
 
-      const newRefreshToken = app.jwt.sign(
+      const newRefreshToken = refreshJwt.sign(
         { id: user.id },
         { expiresIn: '7d' }
       )

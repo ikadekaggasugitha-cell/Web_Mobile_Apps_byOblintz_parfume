@@ -380,6 +380,56 @@ describe('user module', () => {
     });
   });
 
+  describe('PUT /api/users/admin/:id/role', () => {
+    function adminHeader(a: FastifyInstance) {
+      return { authorization: `Bearer ${a.jwt.sign({ id: 'admin-1', role: 'ADMIN' })}` };
+    }
+    function superHeader(a: FastifyInstance, id = 'super-1') {
+      return { authorization: `Bearer ${a.jwt.sign({ id, role: 'SUPER_ADMIN' })}` };
+    }
+
+    it('rejects a plain ADMIN (only SUPER_ADMIN may change roles)', async () => {
+      const res = await app.inject({
+        method: 'PUT',
+        url: '/api/users/admin/target-9/role',
+        headers: adminHeader(app),
+        payload: { role: 'SUPER_ADMIN' },
+      });
+
+      expect(res.statusCode).toBe(403);
+      expect(db.update).not.toHaveBeenCalled();
+    });
+
+    it('lets a SUPER_ADMIN change another user role', async () => {
+      db.query.users.findMany.mockResolvedValueOnce([{ id: 'target-9', role: 'USER', banned: false }]);
+      returningResult.mockResolvedValueOnce([{ id: 'target-9', name: 'X', email: 'x@e.com', role: 'ADMIN' }]);
+
+      const res = await app.inject({
+        method: 'PUT',
+        url: '/api/users/admin/target-9/role',
+        headers: superHeader(app),
+        payload: { role: 'ADMIN' },
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json().data.role).toBe('ADMIN');
+    });
+
+    it('prevents a SUPER_ADMIN from demoting their own account', async () => {
+      db.query.users.findMany.mockResolvedValueOnce([{ id: 'super-1', role: 'SUPER_ADMIN', banned: false }]);
+
+      const res = await app.inject({
+        method: 'PUT',
+        url: '/api/users/admin/super-1/role',
+        headers: superHeader(app, 'super-1'),
+        payload: { role: 'USER' },
+      });
+
+      expect(res.statusCode).toBe(403);
+      expect(db.update).not.toHaveBeenCalled();
+    });
+  });
+
   describe('PUT /api/users/admin/:id/ban', () => {
     function adminHeader(a: FastifyInstance) {
       return { authorization: `Bearer ${a.jwt.sign({ id: 'admin-1', role: 'ADMIN' })}` };

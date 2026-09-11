@@ -1,4 +1,5 @@
-import { pgTable, uuid, varchar, text, decimal, integer, jsonb, timestamp, index } from 'drizzle-orm/pg-core'
+import { pgTable, uuid, varchar, text, decimal, integer, jsonb, timestamp, index, check } from 'drizzle-orm/pg-core'
+import { sql } from 'drizzle-orm'
 import { productStatusEnum } from './enums'
 
 export const categories = pgTable(
@@ -44,5 +45,6 @@ export const products = pgTable(
     index('products_status_idx').on(t.status),
     index('products_category_id_status_idx').on(t.categoryId, t.status),
     index('products_status_created_at_idx').on(t.status, t.createdAt),
+    check('products_stock_nonneg', sql`${t.stock} >= 0`),
   ],
 )

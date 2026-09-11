@@ -464,7 +464,8 @@ describe('payment module (TC-040 – TC-043)', () => {
 
   describe('GET /api/payments/status/:orderId', () => {
     it('returns transaction status with order summary', async () => {
-      // Q1: .select({...}).from(transactions).innerJoin(orders,...).where(eq(transactions.orderId,...)).limit(1) → terminal .limit(1)
+      // Q1: .select({...}).from(transactions).innerJoin(orders,...)
+      //     .where(and(eq(transactions.orderId,...), eq(orders.userId, request.userId))).limit(1) → terminal .limit(1)
       chain.limit.mockResolvedValueOnce([{
         id: 'tx-1',
         status: 'PENDING',
@@ -492,6 +493,21 @@ describe('payment module (TC-040 – TC-043)', () => {
       const res = await app.inject({
         method: 'GET',
         url: '/api/payments/status/order-999',
+        headers: { authorization: `Bearer ${app.jwt.sign({ id: USER_ID })}` },
+      });
+
+      expect(res.statusCode).toBe(404);
+      expect(res.json().error.code).toBe('NOT_FOUND');
+    });
+
+    it('does not expose another user\'s payment (ownership-scoped → 404)', async () => {
+      // The ownership predicate (orders.userId = request.userId) excludes the
+      // foreign order, so the scoped query returns no row and the route 404s.
+      chain.limit.mockResolvedValueOnce([]);
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/payments/status/someone-elses-order',
         headers: { authorization: `Bearer ${app.jwt.sign({ id: USER_ID })}` },
       });
 

@@ -125,7 +125,7 @@ export async function paymentRoutes(app: FastifyInstance) {
     })
       .from(transactions)
       .innerJoin(orders, eq(transactions.orderId, orders.id))
-      .where(eq(transactions.orderId, orderId))
+      .where(and(eq(transactions.orderId, orderId), eq(orders.userId, request.userId!)))
       .limit(1);
 
     if (!transaction) {
